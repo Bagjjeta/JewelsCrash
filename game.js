@@ -31,7 +31,7 @@ let movesCounter = 0; // Count moves for poisoned mode
 let poisonedJewels = []; // Track poisoned jewels positions
 let poisonedMovesLeft = {}; // Track moves left for each poisoned jewel
 let poisonedMovesBeforeSpawn = 3; // Spawn poisoned jewel every 10 moves
-let poisonedMovesBeforeSpread = 3; // Poisoned jewel spreads after 5 moves
+let poisonedMovesBeforeSpread = 8; // Poisoned jewel spreads after 5 moves
 
 // Sound effects
 const sounds = {
