@@ -49,6 +49,11 @@ sounds.music.volume = 0.3;
 // Play sounds with check for mute
 function playSound(sound) {
   if (soundEnabled && sounds[sound]) {
+    // Jeśli to dźwięk podpowiedzi, przerwij poprzednie odtwarzanie (na wypadek szybkiego ponownego użycia)
+    if (sound === "hint") {
+      sounds.hint.pause();
+      sounds.hint.currentTime = 0;
+    }
     sounds[sound].currentTime = 0;
     sounds[sound].play().catch(e => console.log("Audio play error:", e));
   }
@@ -147,6 +152,9 @@ function clearHintIfUsed(x1, y1, x2, y2) {
   ) {
     hintCell = null;
     hintPair = null;
+    // ZATRZYMAJ dźwięk podpowiedzi natychmiast po zniknięciu podpowiedzi
+    sounds.hint.pause();
+    sounds.hint.currentTime = 0;
     lastMoveTime = Date.now();
     scheduleHintTimer();
   }
@@ -710,7 +718,6 @@ function canSwap(x1, y1, x2, y2) {
 function startGame() {
   gameState = "game";
   initBoard();
-  
   if (musicEnabled) {
     sounds.music.play().catch(e => console.log("Music play error:", e));
   }
@@ -872,7 +879,9 @@ function swapJewels(x1, y1, x2, y2, animate) {
       // Clear any hint when a successful swap occurs
       hintCell = null;
       hintPair = null;
-      
+      // ZATRZYMAJ dźwięk podpowiedzi natychmiast po zniknięciu podpowiedzi (na wszelki wypadek)
+      sounds.hint.pause();
+      sounds.hint.currentTime = 0;
       // Update lastMoveTime after a successful match
       lastMoveTime = Date.now();
       // Reset timer to wait another 20 seconds
@@ -975,6 +984,17 @@ function animate() {
   draw(performance.now());
   requestAnimationFrame(animate);
 }
-
-// Initialize and start game animation
 animate();
+
+// DODANO: automatyczne rozpoczęcie muzyki na starcie gry (jeśli wymagane)
+let musicStarted = false;
+function tryStartMusic() {
+  if (!musicStarted && musicEnabled) {
+    sounds.music.play().catch(e => {
+      // Często wymagana jest interakcja użytkownika, więc spróbuj ponownie po kliknięciu
+      document.addEventListener("mousedown", tryStartMusic, { once: true });
+    });
+    musicStarted = true;
+  }
+}
+tryStartMusic();
