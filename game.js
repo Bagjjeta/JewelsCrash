@@ -290,13 +290,26 @@ function drawMenu(now) {
   ctx.fillText("JEWELS CRASH", canvas.width / 2, 120);
   
   // Animated gem icon
-  const gemSize = 40;
-  const gemX = canvas.width / 2;
-  const gemY = 140;
+  const gemSize = 35;
+  const gemX = canvas.width / 2 + 140;
+  const gemY = 50;
+  const gemX2 = canvas.width / 2 - 140;;
   const pulse = 1 + 0.1 * Math.sin(now / 200);
   
   ctx.save();
   ctx.translate(gemX, gemY);
+  ctx.scale(pulse, pulse);
+  ctx.fillStyle = COLORS[Math.floor(now / 500) % COLORS.length];
+  ctx.beginPath();
+  ctx.arc(0, 0, gemSize, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(gemX2, gemY);
   ctx.scale(pulse, pulse);
   ctx.fillStyle = COLORS[Math.floor(now / 500) % COLORS.length];
   ctx.beginPath();
