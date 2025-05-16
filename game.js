@@ -7,6 +7,7 @@ const scoreDiv = document.getElementById("score");
 const ROWS = 8, COLS = 8, SIZE = 60;
 const JEWEL_TYPES = 5;
 const COLORS = ["#1abc9c", "#f1c40f", "#e67e22", "#9b59b6", "#e74c3c"];
+const POISONED_COLOR = "#2c3e50"; // Dark color for poisoned jewel
 const HEADER_HEIGHT = 40; // Height of the UI header
 
 // Game state
@@ -25,6 +26,12 @@ let gameState = "menu"; // "menu", "game", "paused", "help", "settings"
 let soundEnabled = true;
 let musicEnabled = true;
 let particleEffects = [];
+let gameMode = "classic"; // "classic" or "poisoned"
+let movesCounter = 0; // Count moves for poisoned mode
+let poisonedJewels = []; // Track poisoned jewels positions
+let poisonedMovesLeft = {}; // Track moves left for each poisoned jewel
+let poisonedMovesBeforeSpawn = 3; // Spawn poisoned jewel every 10 moves
+let poisonedMovesBeforeSpread = 3; // Poisoned jewel spreads after 5 moves
 
 // Sound effects
 const sounds = {
@@ -33,7 +40,9 @@ const sounds = {
   match: new Audio('./sounds/match.mp3'),
   hint: new Audio('./sounds/hint.mp3'),
   button: new Audio('./sounds/button_sound.mp3'),
-  music: new Audio('./sounds/music.mp3')
+  music: new Audio('./sounds/music.mp3'),
+  poisonedMusic: new Audio('./sounds/poisoned_music.mp3'), // New music for poisoned mode
+  poison: new Audio('./sounds/poison.mp3') // Sound for poison spread
 };
 
 // Preload sounds
@@ -45,6 +54,8 @@ Object.values(sounds).forEach(sound => {
 // Background music settings
 sounds.music.loop = true;
 sounds.music.volume = 0.3;
+sounds.poisonedMusic.loop = true;
+sounds.poisonedMusic.volume = 0.3;
 
 // Play sounds with check for mute
 function playSound(sound) {
@@ -63,10 +74,29 @@ function playSound(sound) {
 function toggleMusic() {
   musicEnabled = !musicEnabled;
   if (musicEnabled) {
-    sounds.music.play().catch(e => console.log("Music play error:", e));
+    playGameMusic();
   } else {
-    sounds.music.pause();
+    pauseAllMusic();
   }
+}
+
+// Play appropriate music based on game mode
+function playGameMusic() {
+  if (!musicEnabled) return;
+  
+  pauseAllMusic();
+  
+  if (gameMode === "classic") {
+    sounds.music.play().catch(e => console.log("Music play error:", e));
+  } else if (gameMode === "poisoned") {
+    sounds.poisonedMusic.play().catch(e => console.log("Music play error:", e));
+  }
+}
+
+// Pause all music tracks
+function pauseAllMusic() {
+  sounds.music.pause();
+  sounds.poisonedMusic.pause();
 }
 
 // Menu buttons
@@ -78,19 +108,25 @@ const buttons = [
 
 // Settings buttons
 const settingsButtons = [
-  { text: "SOUND: ON", x: canvas.width / 2, y: 200, width: 240, height: 50, 
+  { text: "SOUND: ON", x: canvas.width / 2, y: 170, width: 240, height: 50, 
     action: () => { 
       soundEnabled = !soundEnabled; 
       settingsButtons[0].text = soundEnabled ? "SOUND: ON" : "SOUND: OFF";
     } 
   },
-  { text: "MUSIC: ON", x: canvas.width / 2, y: 270, width: 240, height: 50, 
+  { text: "MUSIC: ON", x: canvas.width / 2, y: 240, width: 240, height: 50, 
     action: () => { 
       toggleMusic(); 
       settingsButtons[1].text = musicEnabled ? "MUSIC: ON" : "MUSIC: OFF";
     } 
   },
-  { text: "BACK", x: canvas.width / 2, y: 340, width: 200, height: 50, action: () => { gameState = "menu"; } }
+  { text: "GAME MODE: CLASSIC", x: canvas.width / 2, y: 310, width: 280, height: 50,
+    action: () => {
+      gameMode = gameMode === "classic" ? "poisoned" : "classic";
+      settingsButtons[2].text = `GAME MODE: ${gameMode.toUpperCase()}`;
+    }
+  },
+  { text: "BACK", x: canvas.width / 2, y: 380, width: 200, height: 50, action: () => { gameState = "menu"; } }
 ];
 
 // Schedule hint timer
@@ -178,6 +214,11 @@ function initBoard() {
   scheduleHintTimer();
   score = 0;
   scoreDiv.textContent = "Wynik: 0";
+  
+  // Reset poisoned mode variables
+  movesCounter = 0;
+  poisonedJewels = [];
+  poisonedMovesLeft = {};
 }
 
 // Generate random jewel
@@ -208,8 +249,13 @@ function draw(now) {
   
   // Background gradient
   const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  gradient.addColorStop(0, "#1a1a2e");
-  gradient.addColorStop(1, "#16213e");
+  if (gameMode === "classic") {
+    gradient.addColorStop(0, "#1a1a2e");
+    gradient.addColorStop(1, "#16213e");
+  } else if (gameMode === "poisoned") {
+    gradient.addColorStop(0, "#1e272e");
+    gradient.addColorStop(1, "#2c3e50");
+  }
   ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   
@@ -380,6 +426,22 @@ function drawHelp() {
     y += lineHeight;
   }
   
+  // Game mode specific help
+  y += 20;
+  if (gameMode === "classic") {
+    ctx.fillText("CLASSIC MODE:", 80, y);
+    y += lineHeight;
+    ctx.fillText("- Standard match-3 gameplay", 80, y);
+  } else if (gameMode === "poisoned") {
+    ctx.fillText("POISONED JEWELS MODE:", 80, y);
+    y += lineHeight;
+    ctx.fillText("- Every 10 moves, a poisoned jewel appears", 80, y);
+    y += lineHeight;
+    ctx.fillText("- Remove it within 5 moves or it will spread", 80, y);
+    y += lineHeight;
+    ctx.fillText("- If poisoned jewels fill the board, you lose", 80, y);
+  }
+  
   // Example
   y += 20;
   ctx.fillText("Example:", 80, y);
@@ -495,10 +557,18 @@ function drawGame(now) {
   ctx.textAlign = "center";
   ctx.fillText("Score: " + score, canvas.width / 2, HEADER_HEIGHT / 2 + 5);
   
-  // Draw pause info on the right
-  ctx.font = "16px Arial";
-  ctx.textAlign = "right";
-  ctx.fillText("ESC - Pause", canvas.width - 20, HEADER_HEIGHT / 2 + 5);
+  // Draw mode info or poisoned moves counter
+  if (gameMode === "poisoned") {
+    let nextPoisonIn = poisonedMovesBeforeSpawn - (movesCounter % poisonedMovesBeforeSpawn);
+    ctx.font = "14px Arial";
+    ctx.textAlign = "right";
+    ctx.fillText(`Poisoned in: ${nextPoisonIn}`, canvas.width - 20, HEADER_HEIGHT / 2 + 5);
+  } else {
+    // Draw pause info on the right
+    ctx.font = "16px Arial";
+    ctx.textAlign = "right";
+    ctx.fillText("ESC - Pause", canvas.width - 20, HEADER_HEIGHT / 2 + 5);
+  }
   
   // Draw popping jewels
   for (let p of popping) {
@@ -509,7 +579,14 @@ function drawGame(now) {
     ctx.globalAlpha = alpha;
     ctx.translate(p.x * SIZE + SIZE / 2, p.y * SIZE + SIZE / 2 + HEADER_HEIGHT);
     ctx.scale(scale, scale);
-    ctx.fillStyle = COLORS[jewel];
+    
+    // Check if it's a poisoned jewel
+    if (isPoisonedJewel(p.x, p.y)) {
+      ctx.fillStyle = POISONED_COLOR;
+    } else {
+      ctx.fillStyle = COLORS[jewel];
+    }
+    
     ctx.beginPath();
     ctx.arc(0, 0, SIZE / 2 - 6, 0, Math.PI * 2);
     ctx.fill();
@@ -555,7 +632,16 @@ function drawGame(now) {
     );
     ctx.shadowColor = "#fff";
     ctx.shadowBlur = 15;
-    ctx.fillStyle = COLORS[j1];
+    
+    // Check if it's a poisoned jewel
+    if (isPoisonedJewel(x1, y1)) {
+      ctx.fillStyle = POISONED_COLOR;
+      // Add poison symbol (skull)
+      drawPoisonedJewel(0, 0, SIZE / 2 - 6);
+    } else {
+      ctx.fillStyle = COLORS[j1];
+    }
+    
     ctx.beginPath();
     ctx.arc(0, 0, SIZE / 2 - 6, 0, Math.PI * 2);
     ctx.fill();
@@ -599,7 +685,16 @@ function drawGame(now) {
     );
     ctx.shadowColor = "#fff";
     ctx.shadowBlur = 15;
-    ctx.fillStyle = COLORS[j2];
+    
+    // Check if it's a poisoned jewel
+    if (isPoisonedJewel(x2, y2)) {
+      ctx.fillStyle = POISONED_COLOR;
+      // Add poison symbol (skull)
+      drawPoisonedJewel(0, 0, SIZE / 2 - 6);
+    } else {
+      ctx.fillStyle = COLORS[j2];
+    }
+    
     ctx.beginPath();
     ctx.arc(0, 0, SIZE / 2 - 6, 0, Math.PI * 2);
     ctx.fill();
@@ -656,6 +751,18 @@ function drawGame(now) {
         scale = 1.15 + 0.03 * Math.sin(now / 80);
         shadow = true;
       }
+      
+      // Poison warning pulse if about to spread
+      const poisonKey = `${x},${y}`;
+      if (
+        gameMode === "poisoned" && 
+        isPoisonedJewel(x, y) && 
+        poisonedMovesLeft[poisonKey] <= 2
+      ) {
+        scale = 1.15 + 0.1 * Math.sin(now / 200);
+        shadow = true;
+      }
+      
       ctx.save();
       ctx.translate(x * SIZE + SIZE / 2, y * SIZE + SIZE / 2 + HEADER_HEIGHT);
       ctx.scale(scale, scale);
@@ -663,7 +770,14 @@ function drawGame(now) {
         ctx.shadowColor = "#fff";
         ctx.shadowBlur = 15;
       }
-      ctx.fillStyle = COLORS[jewel];
+      
+      // Check if it's a poisoned jewel
+      if (isPoisonedJewel(x, y)) {
+        ctx.fillStyle = POISONED_COLOR;
+      } else {
+        ctx.fillStyle = COLORS[jewel];
+      }
+      
       ctx.beginPath();
       ctx.arc(0, 0, SIZE / 2 - 6, 0, Math.PI * 2);
       ctx.fill();
@@ -677,6 +791,11 @@ function drawGame(now) {
       gradient.addColorStop(0.5, "rgba(255, 255, 255, 0)");
       ctx.fillStyle = gradient;
       ctx.fill();
+      
+      // Draw poison symbol for poisoned jewels
+      if (isPoisonedJewel(x, y)) {
+        drawPoisonedJewel(0, 0, SIZE / 2 - 6);
+      }
       
       ctx.shadowBlur = 0;
       ctx.lineWidth = 3;
@@ -699,9 +818,236 @@ function drawGame(now) {
         ctx.stroke();
         ctx.setLineDash([]);
       }
+      
+      // Indication for poisoned jewels about to spread
+      if (
+        gameMode === "poisoned" && 
+        isPoisonedJewel(x, y)
+      ) {
+        const poisonKey = `${x},${y}`;
+        // Show moves remaining
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 16px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(poisonedMovesLeft[poisonKey], 0, 0);
+        
+        // Add warning glow if about to spread
+        if (poisonedMovesLeft[poisonKey] <= 2) {
+          ctx.strokeStyle = "#ff0000";
+          ctx.lineWidth = 3;
+          ctx.setLineDash([3, 3]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+      
       ctx.restore();
     }
   }
+}
+
+// Draw a poisoned jewel (with skull symbol)
+function drawPoisonedJewel(x, y, radius) {
+  ctx.save();
+  ctx.translate(x, y);
+  
+  // Draw skull symbol
+  ctx.fillStyle = "#fff";
+  
+  // Skull head
+  ctx.beginPath();
+  ctx.arc(0, -radius/4, radius/2, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Eyes
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.arc(-radius/5, -radius/4, radius/8, 0, Math.PI * 2);
+  ctx.arc(radius/5, -radius/4, radius/8, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Nose
+  ctx.beginPath();
+  ctx.arc(0, -radius/6, radius/10, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Jaw
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(0, radius/6, radius/3, 0, Math.PI);
+  ctx.fill();
+  
+  // Teeth
+  ctx.fillStyle = "#000";
+  for (let i = -2; i <= 2; i++) {
+    ctx.fillRect(i * radius/8, radius/12, radius/10, radius/6);
+  }
+  
+  ctx.restore();
+}
+
+// Check if a position has a poisoned jewel
+function isPoisonedJewel(x, y) {
+  return poisonedJewels.some(pos => pos.x === x && pos.y === y);
+}
+
+// Add a poisoned jewel to the board
+function addPoisonedJewel() {
+  if (gameMode !== "poisoned") return;
+  
+  // Find empty positions (not already poisoned)
+  let emptyPositions = [];
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (!isPoisonedJewel(x, y)) {
+        emptyPositions.push({x, y});
+      }
+    }
+  }
+  
+  if (emptyPositions.length > 0) {
+    // Choose random position
+    const pos = emptyPositions[Math.floor(Math.random() * emptyPositions.length)];
+    poisonedJewels.push(pos);
+    const poisonKey = `${pos.x},${pos.y}`;
+    poisonedMovesLeft[poisonKey] = poisonedMovesBeforeSpread;
+    
+    // Play poison sound
+    playSound("poison");
+    
+    // Create particle effect
+    createParticles(
+      pos.x * SIZE + SIZE / 2, 
+      pos.y * SIZE + SIZE / 2 + HEADER_HEIGHT, 
+      POISONED_COLOR, 
+      30
+    );
+  }
+}
+
+// Update poisoned jewels (reduce their countdown, spread if needed)
+function updatePoisonedJewels() {
+  if (gameMode !== "poisoned") return;
+  
+  let spread = false;
+  let newPoisonedPositions = [];
+  
+  // Check if any poisoned jewel needs to spread
+  for (let i = 0; i < poisonedJewels.length; i++) {
+    const pos = poisonedJewels[i];
+    const poisonKey = `${pos.x},${pos.y}`;
+    
+    if (poisonedMovesLeft[poisonKey] <= 0) {
+      spread = true;
+      
+      // Spread to adjacent cells (4 directions)
+      const directions = [
+        {dx: 1, dy: 0},
+        {dx: -1, dy: 0},
+        {dx: 0, dy: 1},
+        {dx: 0, dy: -1}
+      ];
+      
+      for (const dir of directions) {
+        const newX = pos.x + dir.dx;
+        const newY = pos.y + dir.dy;
+        
+        // Check if position is valid and not already poisoned
+        if (
+          newX >= 0 && newX < COLS && 
+          newY >= 0 && newY < ROWS &&
+          !isPoisonedJewel(newX, newY) &&
+          !newPoisonedPositions.some(p => p.x === newX && p.y === newY)
+        ) {
+          newPoisonedPositions.push({x: newX, y: newY});
+        }
+      }
+      
+      // Reset the moves counter for this poisoned jewel
+      poisonedMovesLeft[poisonKey] = poisonedMovesBeforeSpread;
+    }
+  }
+  
+  // Add new poisoned positions
+  for (const newPos of newPoisonedPositions) {
+    poisonedJewels.push(newPos);
+    const poisonKey = `${newPos.x},${newPos.y}`;
+    poisonedMovesLeft[poisonKey] = poisonedMovesBeforeSpread;
+    
+    // Create particle effect
+    createParticles(
+      newPos.x * SIZE + SIZE / 2, 
+      newPos.y * SIZE + SIZE / 2 + HEADER_HEIGHT, 
+      POISONED_COLOR, 
+      15
+    );
+  }
+  
+  if (spread) {
+    playSound("poison");
+  }
+  
+  // Check for game over - if all board is poisoned
+  if (poisonedJewels.length >= ROWS * COLS) {
+    gameOver();
+  }
+}
+
+// Game over
+function gameOver() {
+  animating = true;
+  
+  // Draw game over screen
+  ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 48px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 40);
+  
+  ctx.font = "24px Arial";
+  ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 + 20);
+  
+  // Draw retry button
+  const retryButton = { 
+    text: "RETRY", 
+    x: canvas.width / 2, 
+    y: canvas.height / 2 + 80, 
+    width: 200, 
+    height: 50, 
+    action: () => {
+      startGame();
+    }
+  };
+  
+  drawButton(retryButton, hover && 
+    hover.x >= retryButton.x - retryButton.width / 2 &&
+    hover.x <= retryButton.x + retryButton.width / 2 &&
+    hover.y >= retryButton.y - retryButton.height / 2 &&
+    hover.y <= retryButton.y + retryButton.height / 2
+  );
+  
+  // Add event listener for clicking retry button
+  const retryListener = function(e) {
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    
+    if (
+      mouseX >= retryButton.x - retryButton.width / 2 &&
+      mouseX <= retryButton.x + retryButton.width / 2 &&
+      mouseY >= retryButton.y - retryButton.height / 2 &&
+      mouseY <= retryButton.y + retryButton.height / 2
+    ) {
+      playSound("button");
+      canvas.removeEventListener("mousedown", retryListener);
+      retryButton.action();
+    }
+  };
+  
+  canvas.addEventListener("mousedown", retryListener);
 }
 
 // Get matching jewels
@@ -731,9 +1077,7 @@ function canSwap(x1, y1, x2, y2) {
 function startGame() {
   gameState = "game";
   initBoard();
-  if (musicEnabled) {
-    sounds.music.play().catch(e => console.log("Music play error:", e));
-  }
+  playGameMusic();
 }
 
 // Handle mouse down
@@ -900,11 +1244,35 @@ function swapJewels(x1, y1, x2, y2, animate) {
       // Reset timer to wait another 20 seconds
       scheduleHintTimer();
       
+      // Increment moves counter for poisoned mode
+      if (gameMode === "poisoned") {
+        incrementPoisonedMoves();
+      }
+      
       selected = null;
       animating = false;
       draw(performance.now());
     }
   }, animate ? 200 : 0);
+}
+
+// Increment moves counter in poisoned mode
+function incrementPoisonedMoves() {
+  movesCounter++;
+  
+  // Add poisoned jewel every X moves
+  if (movesCounter % poisonedMovesBeforeSpawn === 0) {
+    addPoisonedJewel();
+  }
+  
+  // Update poisoned jewels countdown
+  for (const pos of poisonedJewels) {
+    const poisonKey = `${pos.x},${pos.y}`;
+    poisonedMovesLeft[poisonKey]--;
+  }
+  
+  // Update poisoned jewels (check for spread)
+  updatePoisonedJewels();
 }
 
 // Remove matching jewels
@@ -923,12 +1291,31 @@ function removeMatches() {
   if (removed) {
     playSound("match");
     popping = [];
+    
+    // Check if any poisoned jewels are matched
+    let poisonedRemoved = false;
+    for (let i = poisonedJewels.length - 1; i >= 0; i--) {
+      const pos = poisonedJewels[i];
+      if (marks[pos.y][pos.x]) {
+        // Remove the poisoned jewel
+        poisonedJewels.splice(i, 1);
+        delete poisonedMovesLeft[`${pos.x},${pos.y}`];
+        poisonedRemoved = true;
+      }
+    }
+    
+    if (poisonedRemoved) {
+      // Create special effect for removing poisoned jewels
+      createParticles(canvas.width / 2, canvas.height / 2, POISONED_COLOR, 30);
+    }
+    
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
         if (marks[y][x]) {
           popping.push({ x, y, progress: 0, type: board[y][x] });
           // Create particles at each match location
-          createParticles(x * SIZE + SIZE / 2, (y * SIZE + SIZE / 2) + HEADER_HEIGHT, COLORS[board[y][x]], 15);
+          createParticles(x * SIZE + SIZE / 2, (y * SIZE + SIZE / 2) + HEADER_HEIGHT, 
+                         isPoisonedJewel(x, y) ? POISONED_COLOR : COLORS[board[y][x]], 15);
         }
       }
     }
@@ -1003,11 +1390,8 @@ animate();
 let musicStarted = false;
 function tryStartMusic() {
   if (!musicStarted && musicEnabled) {
-    sounds.music.play().catch(e => {
-      // Często wymagana jest interakcja użytkownika, więc spróbuj ponownie po kliknięciu
-      document.addEventListener("mousedown", tryStartMusic, { once: true });
-    });
+    playGameMusic();
     musicStarted = true;
   }
 }
-tryStartMusic();
+document.addEventListener("mousedown", tryStartMusic, { once: true });
