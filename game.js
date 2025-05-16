@@ -32,8 +32,8 @@ const sounds = {
   swap: new Audio('https://assets.mixkit.co/active_storage/sfx/270/270-preview.mp3'),
   match: new Audio('https://assets.mixkit.co/active_storage/sfx/217/217-preview.mp3'),
   hint: new Audio('https://assets.mixkit.co/active_storage/sfx/2/2-preview.mp3'),
-  button: new Audio('https://assets.mixkit.co/active_storage/sfx/220/220-preview.mp3'),
-  music: new Audio('https://assets.mixkit.co/active_storage/sfx/209/209-preview.mp3')
+  button: new Audio('./sounds/button_sound.mp3'),
+  music: new Audio('./sounds/music.mp3')
 };
 
 // Preload sounds
