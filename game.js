@@ -335,6 +335,7 @@ canvas.addEventListener("mouseleave", () => {
   draw(performance.now());
 });
 
+// Update the swapJewels function to clear any active hint on a successful swap
 function swapJewels(x1, y1, x2, y2, animate) {
   animating = true;
   [board[y1][x1], board[y2][x2]] = [board[y2][x2], board[y1][x1]];
@@ -348,6 +349,15 @@ function swapJewels(x1, y1, x2, y2, animate) {
         draw(performance.now());
       }, true);
     } else {
+      // Clear any hint when a successful swap occurs
+      hintCell = null;
+      hintPair = null;
+      
+      // Update lastMoveTime after a successful match
+      lastMoveTime = Date.now();
+      // Reset timer to wait another 20 seconds
+      scheduleHintTimer();
+      
       selected = null;
       animating = false;
       draw(performance.now());
