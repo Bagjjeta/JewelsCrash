@@ -1,30 +1,30 @@
 // Game with menu and sound effects
+// Current User: Bagjjeta
+// Last modification: 2025-05-17 19:04:02 UTC (Formatted for readability)
+
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const scoreDiv = document.getElementById("score");
+const recordScoreDiv = document.getElementById("recordScoreDiv");
 
 // Game constants
 const ROWS = 8;
 const COLS = 8;
-const SIZE = 75; // ZMIENIONO: Rozmiar pola klejnotu (np. 75)
+const SIZE = 75;
 const JEWEL_TYPES = 5;
 const HEADER_HEIGHT = 40;
-const JEWEL_VISUAL_SCALE = 0.85; // NOWA STAŁA: Skala obrazka klejnotu wewnątrz jego pola (np. 0.85)
+const JEWEL_VISUAL_SCALE = 0.85;
+const POISON_JEWEL_TYPE = -1;
 
 // Image paths and objects
 const jewelImagePaths = [
-  'icon/blue.png',
-  'icon/yellow.png',
-  'icon/green.png',
-  'icon/red.png',
-  'icon/purple.png'
+  'icon/blue.png', 'icon/yellow.png', 'icon/green.png',
+  'icon/red.png', 'icon/purple.png'
 ];
 const poisonImagePath = 'icon/poison.png';
 
 let jewelImages = [];
 let poisonImage = new Image();
-let imagesToLoad = jewelImagePaths.length + 1;
-let imagesLoadedCount = 0;
 let allImagesReady = false;
 
 // Game state
@@ -32,6 +32,7 @@ let board = [];
 let selected = null;
 let animating = false;
 let score = 0;
+let recordScore = 0;
 let hover = null;
 let popping = [];
 let swapAnim = null;
@@ -39,16 +40,16 @@ let hintCell = null;
 let hintPair = null;
 let hintTimer = null;
 let lastMoveTime = Date.now();
-let gameState = "menu"; // "menu", "game", "paused", "help", "settings"
+let gameState = "modeSelection";
 let soundEnabled = true;
 let musicEnabled = true;
 let particleEffects = [];
-let gameMode = "classic"; // "classic" or "poisoned"
+let gameMode = "classic"; // Domyślny tryb gry
 let movesCounter = 0;
-let poisonedJewels = [];
-let poisonedMovesLeft = {};
+let poisonedJewels = []; // Lista koordynatów {x, y} aktywnych trucizn
+let poisonedMovesLeft = {}; // Obiekt przechowujący pozostałe ruchy dla każdej trucizny { "x,y": moves }
 let poisonedMovesBeforeSpawn = 3;
-let poisonedMovesBeforeSpread = 8;
+let poisonedMovesBeforeSpread = 5; // Przywrócono wartość 8
 
 // Sound effects
 const sounds = {
@@ -59,7 +60,8 @@ const sounds = {
   button: new Audio('./sounds/button_sound.mp3'),
   music: new Audio('./sounds/music.mp3'),
   poisonedMusic: new Audio('./sounds/poisoned_music.mp3'),
-  poison: new Audio('./sounds/poison.mp3')
+  poison: new Audio('./sounds/poison.mp3'),
+  gameover: new Audio('./sounds/gameover.mp3')
 };
 
 Object.values(sounds).forEach(sound => {
@@ -70,55 +72,51 @@ sounds.music.loop = true;
 sounds.music.volume = 0.3;
 sounds.poisonedMusic.loop = true;
 sounds.poisonedMusic.volume = 0.3;
+sounds.gameover.volume = 0.6;
 
 function loadJewelImages(callback) {
+  let loadedCount = 0;
+  const totalImages = jewelImagePaths.length + 1; // +1 dla poisonImage
+
+  function imageLoaded() {
+    loadedCount++;
+    if (loadedCount === totalImages) {
+      allImagesReady = true;
+      if (callback) {
+        callback();
+      }
+    }
+  }
+
   jewelImagePaths.forEach((path, i) => {
     const img = new Image();
     img.src = path;
     jewelImages[i] = img;
-    img.onload = () => {
-      imagesLoadedCount++;
-      if (imagesLoadedCount === imagesToLoad && callback) {
-        allImagesReady = true; // Ustaw flagę tutaj
-        callback();
-      }
-    };
+    img.onload = imageLoaded;
     img.onerror = () => {
       console.error("Failed to load image:", path);
-      imagesLoadedCount++;
-      if (imagesLoadedCount === imagesToLoad && callback) {
-        allImagesReady = true; // Również tutaj na wypadek błędu
-        callback();
-      }
+      imageLoaded(); // Zliczaj nawet jeśli błąd, aby callback się wykonał
     };
   });
 
   poisonImage.src = poisonImagePath;
-  poisonImage.onload = () => {
-    imagesLoadedCount++;
-    if (imagesLoadedCount === imagesToLoad && callback) {
-      allImagesReady = true;
-      callback();
-    }
-  };
+  poisonImage.onload = imageLoaded;
   poisonImage.onerror = () => {
     console.error("Failed to load image:", poisonImagePath);
-    imagesLoadedCount++;
-    if (imagesLoadedCount === imagesToLoad && callback) {
-      allImagesReady = true;
-      callback();
-    }
+    imageLoaded();
   };
 }
 
-function playSound(sound) {
-  if (soundEnabled && sounds[sound]) {
-    if (sound === "hint") {
-      sounds.hint.pause();
-      sounds.hint.currentTime = 0;
+function playSound(soundName) {
+  if (soundEnabled && sounds[soundName]) {
+    if (soundName === "hint" && sounds.hint.currentTime > 0 && !sounds.hint.paused) {
+        sounds.hint.pause();
+        sounds.hint.currentTime = 0;
     }
-    sounds[sound].currentTime = 0;
-    sounds[sound].play().catch(e => console.log("Audio play error:", e));
+    sounds[soundName].currentTime = 0;
+    sounds[soundName].play().catch(e => {
+      console.log("Audio play error for " + soundName + ":", e);
+    });
   }
 }
 
@@ -148,56 +146,93 @@ function pauseAllMusic() {
   sounds.poisonedMusic.pause();
 }
 
-const buttons = [
-  { text: "PLAY", x: canvas.width / 2, y: 200, width: 200, height: 50, action: () => startGame() },
-  { text: "SETTINGS", x: canvas.width / 2, y: 270, width: 200, height: 50, action: () => { gameState = "settings"; } },
-  { text: "HELP", x: canvas.width / 2, y: 340, width: 200, height: 50, action: () => { gameState = "help"; } }
+const modeSelectionButtons = [
+  {
+    text: "TRYB KLASYCZNY", x: canvas.width / 2, y: 250, width: 300, height: 60,
+    action: () => {
+      gameMode = "classic";
+      gameState = "menu";
+      settingsMenuButtons[2].text = `GAME MODE: ${gameMode.toUpperCase()}`; // Aktualizuj tekst w ustawieniach
+      playGameMusic();
+    }
+  },
+  {
+    text: "ZATRUTE KLEJNOTY", x: canvas.width / 2, y: 340, width: 300, height: 60,
+    action: () => {
+      gameMode = "poisoned";
+      gameState = "menu";
+      settingsMenuButtons[2].text = `GAME MODE: ${gameMode.toUpperCase()}`; // Aktualizuj tekst w ustawieniach
+      playGameMusic();
+    }
+  }
 ];
 
-const settingsButtons = [
+const mainMenuButtons = [
+  {
+    text: "PLAY", x: canvas.width / 2, y: 200, width: 200, height: 50,
+    action: () => startGame()
+  },
+  {
+    text: "SETTINGS", x: canvas.width / 2, y: 270, width: 200, height: 50,
+    action: () => { gameState = "settings"; }
+  },
+  {
+    text: "HELP", x: canvas.width / 2, y: 340, width: 200, height: 50,
+    action: () => { gameState = "help"; }
+  }
+];
+
+const settingsMenuButtons = [
   {
     text: "SOUND: ON", x: canvas.width / 2, y: 170, width: 240, height: 50,
     action: () => {
       soundEnabled = !soundEnabled;
-      settingsButtons[0].text = soundEnabled ? "SOUND: ON" : "SOUND: OFF";
+      settingsMenuButtons[0].text = soundEnabled ? "SOUND: ON" : "SOUND: OFF";
     }
   },
   {
     text: "MUSIC: ON", x: canvas.width / 2, y: 240, width: 240, height: 50,
     action: () => {
       toggleMusic();
-      settingsButtons[1].text = musicEnabled ? "MUSIC: ON" : "MUSIC: OFF";
+      settingsMenuButtons[1].text = musicEnabled ? "MUSIC: ON" : "MUSIC: OFF";
     }
   },
   {
-    text: "GAME MODE: CLASSIC", x: canvas.width / 2, y: 310, width: 280, height: 50,
+    text: "GAME MODE: CLASSIC", x: canvas.width / 2, y: 310, width: 280, height: 50, // Tekst aktualizowany dynamicznie
     action: () => {
       gameMode = gameMode === "classic" ? "poisoned" : "classic";
-      settingsButtons[2].text = `GAME MODE: ${gameMode.toUpperCase()}`;
+      settingsMenuButtons[2].text = `GAME MODE: ${gameMode.toUpperCase()}`;
     }
   },
-  { text: "BACK", x: canvas.width / 2, y: 380, width: 200, height: 50, action: () => { gameState = "menu"; } }
+  {
+    text: "BACK", x: canvas.width / 2, y: 380, width: 200, height: 50,
+    action: () => { gameState = "menu"; }
+  }
 ];
 
 function scheduleHintTimer() {
   if (hintTimer) {
     clearTimeout(hintTimer);
   }
-  hintTimer = setTimeout(checkAndShowHint, 20000);
+  if (gameState === "game") {
+    hintTimer = setTimeout(checkAndShowHint, 20000); // 20 sekund
+  }
 }
 
 function checkAndShowHint() {
   const now = Date.now();
-  if (now - lastMoveTime >= 20000 && !hintCell && gameState === "game") {
+  if (now - lastMoveTime >= 20000 && !hintCell && gameState === "game" && !animating) {
     showHint();
-  } else {
-    hintTimer = setTimeout(checkAndShowHint, 1000);
+  } else if (gameState === "game") { // Kontynuuj sprawdzanie tylko w stanie gry
+    hintTimer = setTimeout(checkAndShowHint, 1000); // Sprawdzaj co sekundę
   }
 }
 
 function showHint() {
   if (animating || gameState !== "game") {
-    hintTimer = setTimeout(showHint, 1000);
+    if (gameState === "game") { // Jeśli gra, ale animacja, spróbuj później
+        hintTimer = setTimeout(showHint, 1000);
+    }
     return;
   }
   let move = findFirstPossibleMove();
@@ -208,10 +243,18 @@ function showHint() {
   } else {
     hintCell = null;
     hintPair = null;
+    // Jeśli nie ma podpowiedzi, to znaczy, że nie ma ruchów
+    if (gameState === "game" && !checkForPossibleMoves()) {
+        if (gameState !== "gameover") { // Unikaj wielokrotnego wywoływania gameover
+            playSound("gameover");
+            gameOver("Brak ruchów!");
+        }
+    }
   }
 }
 
 function findFirstPossibleMove() {
+  // Sprawdź poziome zamiany
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS - 1; x++) {
       if (canSwapAndMatch(x, y, x + 1, y)) {
@@ -219,6 +262,7 @@ function findFirstPossibleMove() {
       }
     }
   }
+  // Sprawdź pionowe zamiany
   for (let x = 0; x < COLS; x++) {
     for (let y = 0; y < ROWS - 1; y++) {
       if (canSwapAndMatch(x, y, x, y + 1)) {
@@ -226,7 +270,27 @@ function findFirstPossibleMove() {
       }
     }
   }
-  return null;
+  return null; // Brak możliwych ruchów
+}
+
+function checkForPossibleMoves() {
+  // Sprawdź poziome zamiany
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS - 1; x++) {
+      if (canSwapAndMatch(x, y, x + 1, y)) {
+        return true;
+      }
+    }
+  }
+  // Sprawdź pionowe zamiany
+  for (let x = 0; x < COLS; x++) {
+    for (let y = 0; y < ROWS - 1; y++) {
+      if (canSwapAndMatch(x, y, x, y + 1)) {
+        return true;
+      }
+    }
+  }
+  return false; // Brak możliwych ruchów
 }
 
 function clearHintIfUsed(x1, y1, x2, y2) {
@@ -235,14 +299,34 @@ function clearHintIfUsed(x1, y1, x2, y2) {
      ((hintCell.x === x2 && hintCell.y === y2) && (hintPair.x === x1 && hintPair.y === y1)))) {
     hintCell = null;
     hintPair = null;
-    sounds.hint.pause();
-    sounds.hint.currentTime = 0;
+    if (sounds.hint.currentTime > 0 && !sounds.hint.paused) {
+      sounds.hint.pause();
+      sounds.hint.currentTime = 0;
+    }
     lastMoveTime = Date.now();
     scheduleHintTimer();
   }
 }
 
-function initBoard() {
+function updateRecordScoreDisplay() {
+  if (recordScoreDiv) {
+    recordScoreDiv.textContent = "Rekord: " + recordScore;
+  }
+}
+
+function initBoard(attempt = 1) {
+  if (gameState === "gameover" && attempt > 1) {
+    return;
+  }
+  if (attempt > 5) {
+    console.error("Nie udało się stworzyć grywalnej planszy po 5 próbach.");
+    if (gameState !== "gameover") {
+      playSound("gameover");
+      gameOver("Błąd planszy!");
+    }
+    return;
+  }
+
   board = [];
   for (let y = 0; y < ROWS; y++) {
     let row = [];
@@ -252,6 +336,17 @@ function initBoard() {
     board.push(row);
   }
   removeInitialMatches();
+
+  if (gameState !== "gameover" && !checkForPossibleMoves()) {
+    console.log(`Plansza startowa bez ruchów (próba ${attempt}). Przetasowuję.`);
+    initBoard(attempt + 1); // Spróbuj ponownie
+    return; // Zakończ bieżące wywołanie
+  }
+
+  if (gameState === "gameover") { // Jeśli checkForPossibleMoves zakończyło grę
+      return;
+  }
+
   if (hintTimer) {
     clearTimeout(hintTimer);
   }
@@ -259,13 +354,17 @@ function initBoard() {
   hintPair = null;
   lastMoveTime = Date.now();
   scheduleHintTimer();
+  
   score = 0;
   if (scoreDiv) {
     scoreDiv.textContent = "Wynik: 0";
   }
+  updateRecordScoreDisplay();
+
   movesCounter = 0;
   poisonedJewels = [];
   poisonedMovesLeft = {};
+  animating = false; // Upewnij się, że gra nie jest zablokowana
 }
 
 function randJewel() {
@@ -278,6 +377,9 @@ function removeInitialMatches() {
     found = false;
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
+        if (board[y][x] === null || board[y][x] === POISON_JEWEL_TYPE) {
+          continue;
+        }
         let matches = getMatches(x, y);
         if (matches.length >= 3) {
           board[y][x] = randJewel();
@@ -303,26 +405,40 @@ function draw(now) {
     return;
   }
 
+  if (gameState === "gameover") {
+    drawParticles(); // Tylko cząsteczki, resztę rysuje gameOver()
+    return;
+  }
+
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const gradientBg = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  if (gameMode === "classic") {
+
+  if (gameState === "modeSelection" || gameState === "menu" ||
+      (gameState === "game" && gameMode === "classic") ||
+      gameState === "settings" || gameState === "help") {
     gradientBg.addColorStop(0, "#1a1a2e");
     gradientBg.addColorStop(1, "#16213e");
-  } else if (gameMode === "poisoned") {
+  } else if (gameState === "game" && gameMode === "poisoned") {
     gradientBg.addColorStop(0, "#1e272e");
     gradientBg.addColorStop(1, "#2c3e50");
+  } else { 
+    // Domyślne tło dla nieobsługiwanych stanów (nie powinno być potrzebne)
+    gradientBg.addColorStop(0, "#000000");
+    gradientBg.addColorStop(1, "#000000");
   }
   ctx.fillStyle = gradientBg;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  if (gameState === "menu") {
-    drawMenu(now);
+  if (gameState === "modeSelection") {
+    drawModeSelectionScreen(now);
+  } else if (gameState === "menu") {
+    drawMenuScreen(now);
   } else if (gameState === "settings") {
-    drawSettings(now);
+    drawSettingsScreen(now);
   } else if (gameState === "help") {
-    drawHelp();
+    drawHelpScreen();
   } else if (gameState === "game" || gameState === "paused") {
-    drawGame(now);
+    drawGameScreen(now);
     if (gameState === "paused") {
       ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -372,7 +488,25 @@ function createParticles(x, y, color, count = 20) {
   }
 }
 
-function drawMenu(now) {
+function drawModeSelectionScreen(now) {
+  ctx.fillStyle = "#fff";
+  ctx.font = "bold 40px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText("WYBIERZ TRYB GRY", canvas.width / 2, 150);
+
+  for (const button of modeSelectionButtons) {
+    const isHovered = hover &&
+                      hover.x >= button.x - button.width / 2 && hover.x <= button.x + button.width / 2 &&
+                      hover.y >= button.y - button.height / 2 && hover.y <= button.y + button.height / 2;
+    drawButton(button, isHovered);
+  }
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+  ctx.font = "16px Arial";
+  ctx.fillText("Wybierz tryb, w którym chcesz zagrać.", canvas.width / 2, canvas.height - 80);
+}
+
+function drawMenuScreen(now) {
   ctx.fillStyle = "#fff";
   ctx.font = "bold 48px Arial";
   ctx.textAlign = "center";
@@ -380,7 +514,7 @@ function drawMenu(now) {
 
   const gemSize = 35;
   const gemX = canvas.width / 2 + 140;
-  const gemY = 70; // Adjusted Y
+  const gemY = 70;
   const gemX2 = canvas.width / 2 - 140;
   const pulse = 1 + 0.1 * Math.sin(now / 200);
 
@@ -392,47 +526,43 @@ function drawMenu(now) {
       ctx.translate(gemX, gemY);
       ctx.scale(pulse, pulse);
       ctx.drawImage(imgToDraw, -gemSize / 2, -gemSize / 2, gemSize, gemSize);
-      // Obramowanie usunięte: ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.strokeRect(-gemSize/2, -gemSize/2, gemSize, gemSize);
       ctx.restore();
 
       ctx.save();
       ctx.translate(gemX2, gemY);
       ctx.scale(pulse, pulse);
       ctx.drawImage(imgToDraw, -gemSize / 2, -gemSize / 2, gemSize, gemSize);
-      // Obramowanie usunięte
       ctx.restore();
     }
   }
 
-  for (const button of buttons) {
+  for (const button of mainMenuButtons) {
     const isHovered = hover &&
-                      hover.x >= button.x - button.width / 2 &&
-                      hover.x <= button.x + button.width / 2 &&
-                      hover.y >= button.y - button.height / 2 &&
-                      hover.y <= button.y + button.height / 2;
+                      hover.x >= button.x - button.width / 2 && hover.x <= button.x + button.width / 2 &&
+                      hover.y >= button.y - button.height / 2 && hover.y <= button.y + button.height / 2;
     drawButton(button, isHovered);
   }
+
   ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
   ctx.font = "15px Arial";
   ctx.fillText("© 2025 Bagjjeta", canvas.width / 2, canvas.height - 20);
 }
 
-function drawSettings(now) {
+function drawSettingsScreen(now) {
   ctx.fillStyle = "#fff";
   ctx.font = "bold 36px Arial";
   ctx.textAlign = "center";
   ctx.fillText("SETTINGS", canvas.width / 2, 120);
-  for (const button of settingsButtons) {
+
+  for (const button of settingsMenuButtons) {
     const isHovered = hover &&
-                      hover.x >= button.x - button.width / 2 &&
-                      hover.x <= button.x + button.width / 2 &&
-                      hover.y >= button.y - button.height / 2 &&
-                      hover.y <= button.y + button.height / 2;
+                      hover.x >= button.x - button.width / 2 && hover.x <= button.x + button.width / 2 &&
+                      hover.y >= button.y - button.height / 2 && hover.y <= button.y + button.height / 2;
     drawButton(button, isHovered);
   }
 }
 
-function drawHelp() {
+function drawHelpScreen() {
   ctx.fillStyle = "#fff";
   ctx.font = "bold 36px Arial";
   ctx.textAlign = "center";
@@ -453,7 +583,7 @@ function drawHelp() {
     ctx.fillText(line, 80, yPos);
     yPos += lineHeight;
   }
-  yPos += 20;
+  yPos += 20; // Dodatkowy odstęp
 
   if (gameMode === "classic") {
     ctx.fillText("CLASSIC MODE:", 80, yPos);
@@ -474,18 +604,12 @@ function drawHelp() {
   }
 
   const backButtonConfig = {
-    text: "BACK",
-    x: canvas.width / 2,
-    y: canvas.height - 60,
-    width: 200,
-    height: 50,
+    text: "BACK", x: canvas.width / 2, y: canvas.height - 60, width: 200, height: 50,
     action: () => { gameState = "menu"; }
   };
   const isBackHovered = hover &&
-                        hover.x >= backButtonConfig.x - backButtonConfig.width / 2 &&
-                        hover.x <= backButtonConfig.x + backButtonConfig.width / 2 &&
-                        hover.y >= backButtonConfig.y - backButtonConfig.height / 2 &&
-                        hover.y <= backButtonConfig.y + backButtonConfig.height / 2;
+                        hover.x >= backButtonConfig.x - backButtonConfig.width / 2 && hover.x <= backButtonConfig.x + backButtonConfig.width / 2 &&
+                        hover.y >= backButtonConfig.y - backButtonConfig.height / 2 && hover.y <= backButtonConfig.y + backButtonConfig.height / 2;
   drawButton(backButtonConfig, isBackHovered);
 }
 
@@ -519,7 +643,6 @@ function drawButton(button, isHovered) {
   ctx.lineTo(x - width / 2, y - height / 2 + cornerRadius);
   ctx.quadraticCurveTo(x - width / 2, y - height / 2, x - width / 2 + cornerRadius, y - height / 2);
   ctx.closePath();
-
   ctx.fill();
   ctx.stroke();
 
@@ -532,28 +655,35 @@ function drawButton(button, isHovered) {
   if (isHovered) {
     ctx.shadowColor = "#4a69bd";
     ctx.shadowBlur = 15;
-    ctx.stroke(); // Re-stroke for shadowed stroke
-    ctx.shadowBlur = 0;
+    ctx.stroke(); // Ponowne obrysowanie z cieniem
+    ctx.shadowBlur = 0; // Reset cienia
   }
 }
 
-function drawGame(now) {
+function drawGameScreen(now) {
   ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
   ctx.fillRect(0, 0, canvas.width, HEADER_HEIGHT);
 
   const menuButtonConfig = {
     text: "MENU", x: 50, y: HEADER_HEIGHT / 2, width: 80, height: 30,
-    action: () => { gameState = "menu"; pauseAllMusic(); playGameMusic(); }
+    action: () => {
+      gameState = "menu";
+      pauseAllMusic();
+      playGameMusic(); // Odtwórz muzykę menu
+    }
   };
-  const isMenuButtonHovered = hover && hover.x >= 10 && hover.x <= 90 && hover.y >= 5 && hover.y <= 35;
+  const isMenuButtonHovered = hover &&
+                              hover.x >= menuButtonConfig.x - menuButtonConfig.width / 2 && hover.x <= menuButtonConfig.x + menuButtonConfig.width / 2 &&
+                              hover.y >= menuButtonConfig.y - menuButtonConfig.height / 2 && hover.y <= menuButtonConfig.y + menuButtonConfig.height / 2;
   drawButton(menuButtonConfig, isMenuButtonHovered);
 
   ctx.fillStyle = "#fff";
   ctx.font = "bold 18px Arial";
   ctx.textAlign = "center";
-  if (scoreDiv) {
-    ctx.fillText("Score: " + score, canvas.width / 2, HEADER_HEIGHT / 2 + 5);
+  if (scoreDiv) { // scoreDiv jest elementem HTML, nie rysujemy go na canvas
+      // ctx.fillText("Score: " + score, canvas.width / 2, HEADER_HEIGHT / 2 + 5); // To jest na canvas
   }
+
 
   if (gameMode === "poisoned") {
     let nextPoisonIn = poisonedMovesBeforeSpawn - (movesCounter % poisonedMovesBeforeSpawn);
@@ -575,10 +705,10 @@ function drawGame(now) {
     ctx.scale(scale, scale);
 
     let imgToPop = null;
-    if (p.wasPoison && poisonImage && poisonImage.complete) {
-      imgToPop = poisonImage;
-    } else if (!p.wasPoison && p.type >= 0 && p.type < jewelImages.length && jewelImages[p.type] && jewelImages[p.type].complete) {
-      imgToPop = jewelImages[p.type];
+    if (p.type === POISON_JEWEL_TYPE && poisonImage && poisonImage.complete) {
+        imgToPop = poisonImage;
+    } else if (p.type >= 0 && p.type < jewelImages.length && jewelImages[p.type] && jewelImages[p.type].complete) {
+        imgToPop = jewelImages[p.type];
     }
     
     const jewelDrawSizePop = SIZE * JEWEL_VISUAL_SCALE;
@@ -597,11 +727,15 @@ function drawGame(now) {
         continue;
       }
       if (swapAnim && ((swapAnim.x1 === x && swapAnim.y1 === y) || (swapAnim.x2 === x && swapAnim.y2 === y))) {
-           continue;
+        continue;
       }
       
-      let jewelType = board[y][x];
-      let currentScale = 1; 
+      let jewelTypeOnBoard = board[y][x];
+      if (jewelTypeOnBoard === null) { // Puste pole
+        continue;
+      }
+
+      let currentScale = 1;
       const poisonKey = `${x},${y}`;
 
       if (selected && selected.x === x && selected.y === y) {
@@ -610,7 +744,7 @@ function drawGame(now) {
         currentScale = 1.1;
       } else if (hintCell && hintPair && ((hintCell.x === x && hintCell.y === y) || (hintPair.x === x && hintPair.y === y)) && !selected && !animating) {
         currentScale = 1.15 + 0.03 * Math.sin(now / 80);
-      } else if (gameMode === "poisoned" && isPoisonedJewel(x, y) && poisonedMovesLeft[poisonKey] <= 2) {
+      } else if (gameMode === "poisoned" && jewelTypeOnBoard === POISON_JEWEL_TYPE && poisonedMovesLeft[poisonKey] !== undefined && poisonedMovesLeft[poisonKey] <= 2) {
         currentScale = 1.15 + 0.1 * Math.sin(now / 200);
       }
       
@@ -632,16 +766,16 @@ function drawGame(now) {
       } else if (hintCell && hintPair && ((hintCell.x === x && hintCell.y === y) || (hintPair.x === x && hintPair.y === y)) && !selected && !animating) {
         ctx.shadowColor = "#FFD700";
         ctx.shadowBlur = 3;
-      } else if (gameMode === "poisoned" && isPoisonedJewel(x, y) && poisonedMovesLeft[poisonKey] <= 2) {
+      } else if (gameMode === "poisoned" && jewelTypeOnBoard === POISON_JEWEL_TYPE && poisonedMovesLeft[poisonKey] !== undefined && poisonedMovesLeft[poisonKey] <= 2) {
         ctx.shadowColor = "#FF0000";
         ctx.shadowBlur = 3;
       }
       
       let currentJewelImage = null;
-      if (isPoisonedJewel(x, y)) {
+      if (jewelTypeOnBoard === POISON_JEWEL_TYPE) {
         currentJewelImage = poisonImage;
-      } else if (jewelType >= 0 && jewelType < jewelImages.length) {
-        currentJewelImage = jewelImages[jewelType];
+      } else if (jewelTypeOnBoard >= 0 && jewelTypeOnBoard < jewelImages.length) {
+        currentJewelImage = jewelImages[jewelTypeOnBoard];
       }
 
       const jewelDrawSize = SIZE * JEWEL_VISUAL_SCALE;
@@ -652,16 +786,17 @@ function drawGame(now) {
         ctx.fillRect(-jewelDrawSize / 2, -jewelDrawSize / 2, jewelDrawSize, jewelDrawSize);
       }
       
-      if (gameMode === "poisoned" && isPoisonedJewel(x, y)) {
-        ctx.shadowBlur = 0;
+      // Rysuj licznik na zatrutych klejnotach
+      if (gameMode === "poisoned" && jewelTypeOnBoard === POISON_JEWEL_TYPE && poisonedMovesLeft[poisonKey] !== undefined) {
+        ctx.shadowBlur = 0; // Reset cienia przed rysowaniem tekstu
         ctx.shadowColor = 'transparent';
         ctx.fillStyle = "#fff";
         ctx.font = "bold 16px Arial";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.strokeStyle = 'black';
+        ctx.strokeStyle = 'black'; // Obwódka tekstu
         ctx.lineWidth = 2; 
-        ctx.strokeText(poisonedMovesLeft[poisonKey], 0, 0); 
+        ctx.strokeText(poisonedMovesLeft[poisonKey], 0, 0);
         ctx.fillText(poisonedMovesLeft[poisonKey], 0, 0);
       }
       ctx.restore(); 
@@ -669,25 +804,26 @@ function drawGame(now) {
   }
 }
 
-function isPoisonedJewel(x, y) {
+function isPoisonedJewel(x, y) { // Sprawdza, czy trucizna jest na liście aktywnych
   return poisonedJewels.some(pos => pos.x === x && pos.y === y);
 }
 
 function addPoisonedJewel() {
-  if (gameMode !== "poisoned") {
+  if (gameMode !== "poisoned" || gameState === "gameover") {
     return;
   }
   let emptyPositions = [];
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
-      if (!isPoisonedJewel(x, y)) {
-        emptyPositions.push({x, y});
+      if (board[y][x] !== POISON_JEWEL_TYPE) { // Stawiaj tylko na niezatrutych polach
+         emptyPositions.push({x, y});
       }
     }
   }
   if (emptyPositions.length > 0) {
     const pos = emptyPositions[Math.floor(Math.random() * emptyPositions.length)];
-    poisonedJewels.push(pos);
+    board[pos.y][pos.x] = POISON_JEWEL_TYPE; // Ustaw typ na planszy
+    poisonedJewels.push({x: pos.x, y: pos.y}); // Dodaj do listy aktywnych trucizn
     poisonedMovesLeft[`${pos.x},${pos.y}`] = poisonedMovesBeforeSpread;
     playSound("poison");
     createParticles(pos.x * SIZE + SIZE / 2, pos.y * SIZE + SIZE / 2 + HEADER_HEIGHT, "rgba(44, 62, 80, 0.8)", 30);
@@ -695,101 +831,156 @@ function addPoisonedJewel() {
 }
 
 function updatePoisonedJewels() {
-  if (gameMode !== "poisoned") {
+  if (gameMode !== "poisoned" || gameState === "gameover") {
     return;
   }
   let spreadOccurred = false;
-  let newPoisonedPositions = [];
-  for (let i = 0; i < poisonedJewels.length; i++) {
+  let newPoisonedPositions = []; // Miejsca, gdzie trucizna się rozprzestrzeni w tej turze
+
+  for (let i = poisonedJewels.length - 1; i >= 0; i--) {
     const pos = poisonedJewels[i];
     const poisonKey = `${pos.x},${pos.y}`;
-    if (poisonedMovesLeft[poisonKey] <= 0) {
+
+    // Jeśli pole na planszy nie jest już trucizną (np. zostało usunięte przez dopasowanie)
+    if (board[pos.y][pos.x] !== POISON_JEWEL_TYPE) {
+        poisonedJewels.splice(i, 1); // Usuń z listy aktywnych
+        delete poisonedMovesLeft[poisonKey];
+        continue;
+    }
+
+    if (poisonedMovesLeft[poisonKey] !== undefined && poisonedMovesLeft[poisonKey] <= 0) {
       spreadOccurred = true;
       const directions = [{dx: 1, dy: 0}, {dx: -1, dy: 0}, {dx: 0, dy: 1}, {dx: 0, dy: -1}];
       for (const dir of directions) {
         const newX = pos.x + dir.dx;
         const newY = pos.y + dir.dy;
         if (newX >= 0 && newX < COLS && newY >= 0 && newY < ROWS &&
-            !isPoisonedJewel(newX, newY) &&
-            !newPoisonedPositions.some(p => p.x === newX && p.y === newY)) {
+            board[newY][newX] !== POISON_JEWEL_TYPE && // Rozprzestrzeniaj tylko na niezatrute
+            !newPoisonedPositions.some(p => p.x === newX && p.y === newY)) { // I jeszcze nie zaplanowane do zatrucia
           newPoisonedPositions.push({x: newX, y: newY});
         }
       }
-      poisonedMovesLeft[poisonKey] = poisonedMovesBeforeSpread;
+      poisonedMovesLeft[poisonKey] = poisonedMovesBeforeSpread; // Resetuj licznik "starej" trucizny
     }
   }
+
   for (const newPos of newPoisonedPositions) {
-    if (!isPoisonedJewel(newPos.x, newPos.y)) {
-      poisonedJewels.push(newPos);
+    // Upewnij się, że pole wciąż nie jest zatrute (na wypadek wielokrotnego rozprzestrzeniania na to samo pole w jednej turze)
+    if (board[newPos.y][newPos.x] !== POISON_JEWEL_TYPE) {
+      board[newPos.y][newPos.x] = POISON_JEWEL_TYPE;
+      poisonedJewels.push({x: newPos.x, y: newPos.y});
       poisonedMovesLeft[`${newPos.x},${newPos.y}`] = poisonedMovesBeforeSpread;
       createParticles(newPos.x * SIZE + SIZE / 2, newPos.y * SIZE + SIZE / 2 + HEADER_HEIGHT, "rgba(44, 62, 80, 0.8)", 15);
     }
   }
+
   if (spreadOccurred) {
     playSound("poison");
   }
-  if (poisonedJewels.length >= ROWS * COLS) {
-    gameOver();
+  
+  // Sprawdź, czy cała plansza jest zatruta
+  let nonPoisonCount = 0;
+  for(let r=0; r<ROWS; r++) {
+    for(let c=0; c<COLS; c++) {
+        // Policz pola, które nie są zatrute i nie są puste (null)
+        if(board[r][c] !== POISON_JEWEL_TYPE && board[r][c] !== null) {
+            nonPoisonCount++;
+        }
+    }
+  }
+  if (nonPoisonCount === 0 && gameState !== "gameover") {
+    playSound("gameover");
+    gameOver("Zatrucie planszy!");
   }
 }
 
-function gameOver() {
-  animating = true;
+
+function gameOver(reason = "Koniec Gry") {
+  if (gameState === "gameover") {
+    return; // Zapobiegaj wielokrotnemu wywołaniu
+  }
+  animating = true; // Zatrzymaj inne animacje, jeśli były aktywne
   gameState = "gameover";
   pauseAllMusic();
+  // Dźwięk "gameover" jest odtwarzany przed wywołaniem tej funkcji
+
   setTimeout(() => {
     ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
     ctx.fillStyle = "#fff";
     ctx.font = "bold 48px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 40);
+    ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 60);
+
+    ctx.font = "bold 28px Arial";
+    ctx.fillText(reason, canvas.width / 2, canvas.height / 2 - 10);
+
     ctx.font = "24px Arial";
-    if (scoreDiv) {
-      ctx.fillText(`Score: ${score}`, canvas.width / 2, canvas.height / 2 + 20);
-    }
+    ctx.fillText(`Wynik: ${score}`, canvas.width / 2, canvas.height / 2 + 40);
+    
     const retryButton = {
-      text: "RETRY", x: canvas.width / 2, y: canvas.height / 2 + 80, width: 200, height: 50,
-      action: () => { startGame(); }
+      text: "RETRY", x: canvas.width / 2, y: canvas.height / 2 + 100, width: 200, height: 50,
+      action: () => {
+        startGame(); // Bezpośrednio uruchom nową grę
+      }
     };
-    drawButton(retryButton, false);
-    canvas.addEventListener("mousedown", gameOverClickListener);
-  }, 500);
+    drawButton(retryButton, false); // Narysuj przycisk
+    canvas.addEventListener("mousedown", gameOverClickListener); // Dodaj listener dla kliknięcia
+  }, 300); // Krótsze opóźnienie dla szybszego pojawienia się ekranu
 }
 
 function gameOverClickListener(e) {
-  if (gameState !== "gameover") {
+  if (gameState !== "gameover") { // Upewnij się, że działamy tylko na ekranie gameover
     return;
   }
+  
   const rect = canvas.getBoundingClientRect();
   const mouseX = e.clientX - rect.left;
   const mouseY = e.clientY - rect.top;
-  const retryButton = { x: canvas.width / 2, y: canvas.height / 2 + 80, width: 200, height: 50 };
-  if (mouseX >= retryButton.x - retryButton.width / 2 && mouseX <= retryButton.x + retryButton.width / 2 &&
-      mouseY >= retryButton.y - retryButton.height / 2 && mouseY <= retryButton.y + retryButton.height / 2) {
+  
+  const retryButtonConfig = { // Użyj tej samej konfiguracji co w gameOver dla spójności
+      x: canvas.width / 2, 
+      y: canvas.height / 2 + 100, 
+      width: 200, 
+      height: 50
+  };
+  
+  const buttonLeft = retryButtonConfig.x - retryButtonConfig.width / 2;
+  const buttonRight = retryButtonConfig.x + retryButtonConfig.width / 2;
+  const buttonTop = retryButtonConfig.y - retryButtonConfig.height / 2;
+  const buttonBottom = retryButtonConfig.y + retryButtonConfig.height / 2;
+
+  if (mouseX >= buttonLeft && mouseX <= buttonRight &&
+      mouseY >= buttonTop && mouseY <= buttonBottom) {
     playSound("button");
-    canvas.removeEventListener("mousedown", gameOverClickListener);
-    startGame();
+    canvas.removeEventListener("mousedown", gameOverClickListener); // Usuń ten specyficzny listener
+    startGame(); // Bezpośrednio uruchom nową grę
   }
 }
 
 function getMatches(x, y) {
-  if (y < 0 || y >= ROWS || x < 0 || x >= COLS || board[y][x] === null) {
+  if (y < 0 || y >= ROWS || x < 0 || x >= COLS || board[y][x] === null || board[y][x] === POISON_JEWEL_TYPE) {
     return [];
   }
-  const jewel = board[y][x];
+  const jewel = board[y][x]; // Teraz 'jewel' na pewno jest typem kolorowego klejnotu
+  
   let horiz = [{ x, y }];
   let vert = [{ x, y }];
 
+  // Sprawdź w lewo
   for (let dx = x - 1; dx >= 0 && board[y][dx] === jewel; dx--) {
     horiz.push({ x: dx, y });
   }
+  // Sprawdź w prawo
   for (let dx = x + 1; dx < COLS && board[y][dx] === jewel; dx++) {
     horiz.push({ x: dx, y });
   }
+  // Sprawdź w górę
   for (let dy = y - 1; dy >= 0 && board[dy] && board[dy][x] === jewel; dy--) {
     vert.push({ x, y: dy });
   }
+  // Sprawdź w dół
   for (let dy = y + 1; dy < ROWS && board[dy] && board[dy][x] === jewel; dy++) {
     vert.push({ x, y: dy });
   }
@@ -801,47 +992,58 @@ function getMatches(x, y) {
   if (vert.length >= 3) {
     result = result.concat(vert);
   }
+  // Usuń duplikaty (jeśli klejnot jest częścią zarówno poziomego, jak i pionowego dopasowania)
   return result.filter((v, i, a) => a.findIndex(t => t.x === v.x && t.y === v.y) === i);
 }
 
 function canSwapAndMatch(x1, y1, x2, y2) {
-  if (x1 < 0 || x1 >= COLS || y1 < 0 || y1 >= ROWS || x2 < 0 || x2 >= COLS || y2 < 0 || y2 >= ROWS) {
+  // Sprawdzenie granic i czy pola nie są puste
+  if (x1 < 0 || x1 >= COLS || y1 < 0 || y1 >= ROWS ||
+      x2 < 0 || x2 >= COLS || y2 < 0 || y2 >= ROWS ||
+      board[y1][x1] === null || board[y2][x2] === null) {
     return false;
   }
-  [board[y1][x1], board[y2][x2]] = [board[y2][x2], board[y1][x1]]; // Simulate swap
+  // Nie można zamieniać zatrutych klejnotów
+  if (board[y1][x1] === POISON_JEWEL_TYPE || board[y2][x2] === POISON_JEWEL_TYPE) {
+    return false;
+  }
+
+  // Symulacja zamiany
+  [board[y1][x1], board[y2][x2]] = [board[y2][x2], board[y1][x1]];
   const can = getMatches(x1, y1).length >= 3 || getMatches(x2, y2).length >= 3;
-  [board[y1][x1], board[y2][x2]] = [board[y2][x2], board[y1][x1]]; // Swap back
+  // Cofnięcie symulacji
+  [board[y1][x1], board[y2][x2]] = [board[y2][x2], board[y1][x1]];
   return can;
 }
 
 function startGame() {
-  canvas.removeEventListener("mousedown", gameOverClickListener);
+  canvas.removeEventListener("mousedown", gameOverClickListener); // Usuń stary listener, jeśli istnieje
   gameState = "game";
   animating = false;
-  initBoard();
-  playGameMusic();
+  initBoard(); // initBoard resetuje planszę i stany związane z grą
+  playGameMusic(); // Odtwórz muzykę odpowiednią dla trybu gry
 }
 
 canvas.addEventListener("mousedown", e => {
-  if (gameState === "gameover") {
+  if (gameState === "gameover") { // Główny listener nie działa na ekranie gameover
     return;
   }
+  
   const rect = canvas.getBoundingClientRect();
   const mouseX = e.clientX - rect.left;
   const mouseY = e.clientY - rect.top;
 
-  if (gameState === "menu") {
-    for (const button of buttons) {
-      if (mouseX >= button.x - button.width / 2 && mouseX <= button.x + button.width / 2 &&
-          mouseY >= button.y - button.height / 2 && mouseY <= button.y + button.height / 2) {
-        playSound("button");
-        createParticles(mouseX, mouseY, "#fff", 10);
-        button.action();
-        return;
-      }
-    }
+  let buttonsToClick = [];
+  if (gameState === "modeSelection") {
+    buttonsToClick = modeSelectionButtons;
+  } else if (gameState === "menu") {
+    buttonsToClick = mainMenuButtons;
   } else if (gameState === "settings") {
-    for (const button of settingsButtons) {
+    buttonsToClick = settingsMenuButtons;
+  }
+  
+  if (buttonsToClick.length > 0) {
+    for (const button of buttonsToClick) {
       if (mouseX >= button.x - button.width / 2 && mouseX <= button.x + button.width / 2 &&
           mouseY >= button.y - button.height / 2 && mouseY <= button.y + button.height / 2) {
         playSound("button");
@@ -851,7 +1053,7 @@ canvas.addEventListener("mousedown", e => {
       }
     }
   } else if (gameState === "help") {
-    const backButton = { x: canvas.width / 2, y: canvas.height - 60, width: 200, height: 50 };
+    const backButton = { x: canvas.width / 2, y: canvas.height - 60, width: 200, height: 50 }; // Definicja przycisku BACK dla help
     if (mouseX >= backButton.x - backButton.width / 2 && mouseX <= backButton.x + backButton.width / 2 &&
         mouseY >= backButton.y - backButton.height / 2 && mouseY <= backButton.y + backButton.height / 2) {
       playSound("button");
@@ -863,7 +1065,7 @@ canvas.addEventListener("mousedown", e => {
     gameState = "game";
     return;
   } else if (gameState === "game") {
-    const menuButton = { x: 50, y: HEADER_HEIGHT / 2, width: 80, height: 30 };
+    const menuButton = { x: 50, y: HEADER_HEIGHT / 2, width: 80, height: 30 }; // Przycisk MENU w grze
     if (mouseX >= menuButton.x - menuButton.width / 2 && mouseX <= menuButton.x + menuButton.width / 2 &&
         mouseY >= menuButton.y - menuButton.height / 2 && mouseY <= menuButton.y + menuButton.height / 2) {
       playSound("button");
@@ -873,33 +1075,42 @@ canvas.addEventListener("mousedown", e => {
       playGameMusic();
       return;
     }
+
     if (animating || mouseY < HEADER_HEIGHT) {
       return;
     }
     const x = Math.floor(mouseX / SIZE);
     const y = Math.floor((mouseY - HEADER_HEIGHT) / SIZE);
-    if (x < 0 || x >= COLS || y < 0 || y >= ROWS) {
+
+    if (x < 0 || x >= COLS || y < 0 || y >= ROWS || board[y][x] === POISON_JEWEL_TYPE) { // Nie można wybrać zatrutego
       return;
     }
+
     if (!selected) {
       selected = { x, y };
       playSound("select");
     } else {
-      if (Math.abs(selected.x - x) + Math.abs(selected.y - y) === 1) { // Adjacent
+      // Upewnij się, że drugie kliknięcie nie jest na zatrutym
+      if (board[y][x] === POISON_JEWEL_TYPE || (board[selected.y] && board[selected.y][selected.x] === POISON_JEWEL_TYPE)) {
+          selected = null; // Odznacz, jeśli próba interakcji z zatrutym
+          return;
+      }
+
+      if (Math.abs(selected.x - x) + Math.abs(selected.y - y) === 1) { // Czy sąsiadują?
         if (canSwapAndMatch(selected.x, selected.y, x, y)) {
           clearHintIfUsed(selected.x, selected.y, x, y);
           playSound("swap");
           animateSwap(selected.x, selected.y, x, y, () => {
             swapJewels(selected.x, selected.y, x, y);
           });
-        } else { // Invalid swap (no match) - animate back
+        } else { // Nieprawidłowa zamiana (nie tworzy dopasowania)
           animateSwap(selected.x, selected.y, x, y, () => {
             selected = null;
             animating = false;
-          }, true); // true for reverse
+          }, true); // true dla animacji powrotnej
         }
-      } else { // Clicked non-adjacent or same jewel
-        selected = { x, y }; // Select new jewel
+      } else { // Kliknięto na inny, nie sąsiadujący klejnot
+        selected = {x,y};
         playSound("select");
       }
     }
@@ -907,9 +1118,7 @@ canvas.addEventListener("mousedown", e => {
 });
 
 canvas.addEventListener("mousemove", e => {
-  if (gameState === "gameover") {
-    return;
-  }
+  if (gameState === "gameover") return;
   const rect = canvas.getBoundingClientRect();
   const mouseX = e.clientX - rect.left;
   const mouseY = e.clientY - rect.top;
@@ -921,97 +1130,106 @@ canvas.addEventListener("mousemove", e => {
       if (x >= 0 && x < COLS && y >= 0 && y < ROWS) {
         hover = { x, y };
       } else {
-        hover = null; // Outside board
+        hover = null;
       }
-    } else {
-      hover = { x: mouseX, y: mouseY }; // For header buttons
+    } else { // Hover nad przyciskiem MENU w grze
+      hover = { x: mouseX, y: mouseY };
     }
-  } else { // For menu, settings, help
+  } else { // Hover dla ekranów menu, ustawień itp.
     hover = { x: mouseX, y: mouseY };
   }
 });
 
 canvas.addEventListener("mouseleave", () => {
-  if (gameState === "gameover") {
-    return;
-  }
+  if (gameState === "gameover") return;
   hover = null;
 });
 
 document.addEventListener("keydown", e => {
-  if (gameState === "gameover") {
-    return;
-  }
+  if (gameState === "gameover") return;
   if (e.key === "Escape") {
     if (gameState === "game") {
       gameState = "paused";
     } else if (gameState === "paused") {
       gameState = "game";
+    } else if (gameState === "settings" || gameState === "help") {
+      gameState = "menu";
     }
   }
 });
 
 function swapJewels(x1, y1, x2, y2) {
-  [board[y1][x1], board[y2][x2]] = [board[y2][x2], board[y1][x1]];
-  if (!removeMatches()) {
-    [board[y1][x1], board[y2][x2]] = [board[y2][x2], board[y1][x1]]; // Swap back if no matches
+  [board[y1][x1], board[y2][x2]] = [board[y2][x2], board[y1][x1]]; // Wykonaj zamianę
+
+  if (!removeMatches()) { // removeMatches teraz obsługuje sprawdzanie braku ruchów na końcu
+    // Jeśli nie było dopasowań, cofnij zamianę (nie powinno się zdarzyć, jeśli canSwapAndMatch działa)
+    [board[y1][x1], board[y2][x2]] = [board[y2][x2], board[y1][x1]];
     selected = null;
     animating = false;
+    // Sprawdź, czy po nieudanym ruchu nie ma ruchów (awaryjne)
+    if (gameState !== "gameover" && !checkForPossibleMoves()) {
+        if (gameState !== "gameover") { playSound("gameover"); gameOver("Brak ruchów!"); }
+    }
   } else {
+    // Dopasowania znalezione i przetworzone przez removeMatches
     hintCell = null;
     hintPair = null;
-    sounds.hint.pause();
-    sounds.hint.currentTime = 0;
-    lastMoveTime = Date.now();
-    scheduleHintTimer();
+    if (sounds.hint.currentTime > 0 && !sounds.hint.paused) {
+      sounds.hint.pause();
+      sounds.hint.currentTime = 0;
+    }
+    // lastMoveTime i scheduleHintTimer są resetowane w removeMatches po zakończeniu reakcji
     if (gameMode === "poisoned") {
       incrementPoisonedMoves();
     }
     selected = null;
-    // animating will be set to false by removeMatches/animatePop completion
+    // Stan 'animating' jest zarządzany przez removeMatches/animatePop
   }
 }
 
 function incrementPoisonedMoves() {
+  if (gameState === "gameover") return;
   movesCounter++;
   if (movesCounter % poisonedMovesBeforeSpawn === 0) {
     addPoisonedJewel();
   }
-  for (const pos of poisonedJewels) {
+  // Zmniejsz liczniki dla wszystkich aktywnych trucizn
+  for (const pos of poisonedJewels) { // Iteruj po kopii, jeśli modyfikujesz listę w updatePoisonedJewels
     const poisonKey = `${pos.x},${pos.y}`;
-    if (poisonedMovesLeft[poisonKey]) {
+    if (poisonedMovesLeft[poisonKey] !== undefined) {
       poisonedMovesLeft[poisonKey]--;
     }
   }
-  updatePoisonedJewels();
+  updatePoisonedJewels(); // Sprawdź, czy któraś trucizna się rozprzestrzenia
 }
 
 function removeMatches() {
-  let removedAny = false;
+  if (gameState === "gameover") return false;
+  let matchesFoundThisPass = false;
   let marks = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
 
+  // Oznaczanie dopasowań kolorowych klejnotów
   for (let y = 0; y < ROWS; y++) {
     for (let x = 0; x < COLS; x++) {
-      if (board[y][x] === null) {
-        continue;
-      }
-      let matches = getMatches(x, y);
-      if (matches.length >= 3) {
-        matches.forEach(({ x: mx, y: my }) => marks[my][mx] = true);
-        removedAny = true;
+      if (board[y][x] === null || board[y][x] === POISON_JEWEL_TYPE) continue;
+      let currentMatches = getMatches(x, y);
+      if (currentMatches.length >= 3) {
+        currentMatches.forEach(({ x: mx, y: my }) => marks[my][mx] = true);
+        matchesFoundThisPass = true;
       }
     }
   }
 
-  if (removedAny) {
+  if (matchesFoundThisPass) {
+    // Oznaczanie zatrutych klejnotów sąsiadujących z dopasowaniem
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        if (marks[r][c]) {
+        if (marks[r][c] && board[r][c] !== POISON_JEWEL_TYPE) { // Jeśli to dopasowany kolorowy klejnot
           const neighbors = [{x:c,y:r-1},{x:c,y:r+1},{x:c-1,y:r},{x:c+1,y:r}];
           for (const n of neighbors) {
             if (n.x >= 0 && n.x < COLS && n.y >= 0 && n.y < ROWS &&
-                isPoisonedJewel(n.x, n.y) && !marks[n.y][n.x]) {
-              marks[n.y][n.x] = true;
+                board[n.y][n.x] === POISON_JEWEL_TYPE && !marks[n.y][n.x]) { // Jeśli sąsiad jest zatruty
+              marks[n.y][n.x] = true; // Oznacz go do usunięcia
             }
           }
         }
@@ -1020,88 +1238,95 @@ function removeMatches() {
 
     playSound("match");
     popping = [];
-    let actualPoisonEffectCreated = false;
+    let actualPoisonEffectCreated = false; // Aby cząsteczki trucizny pojawiły się tylko raz na turę
 
     for (let y = 0; y < ROWS; y++) {
       for (let x = 0; x < COLS; x++) {
         if (marks[y][x]) {
-          let wasP = isPoisonedJewel(x,y);
-          if (wasP) {
+          let originalBoardType = board[y][x]; // Co było na planszy przed usunięciem
+          let wasActivePoison = isPoisonedJewel(x,y); // Czy był na liście *aktywnych* trucizn
+
+          if (wasActivePoison) { // Jeśli to był aktywny zatruty klejnot
             const pIndex = poisonedJewels.findIndex(p => p.x === x && p.y === y);
             if (pIndex > -1) {
-              poisonedJewels.splice(pIndex, 1);
+              poisonedJewels.splice(pIndex, 1); // Usuń z listy aktywnych
             }
-            delete poisonedMovesLeft[`${x},${y}`];
+            delete poisonedMovesLeft[`${x},${y}`]; // Usuń jego licznik
             if(!actualPoisonEffectCreated){
               createParticles(canvas.width / 2, canvas.height / 2, "rgba(44,62,80,0.9)", 30);
               actualPoisonEffectCreated = true;
             }
           }
-          popping.push({ x, y, progress: 0, type: board[y][x], wasPoison: wasP });
-          
-          let particleColor;
-          if (wasP && poisonImage) {
-            particleColor = "rgba(44,62,80,0.7)";
-          } else if (jewelImages[board[y][x]]) {
-            particleColor = "rgba(200,200,200,0.7)";
-          } else {
-            particleColor = "rgba(128,128,128,0.7)";
-          }
-          createParticles(x * SIZE + SIZE / 2, (y * SIZE + SIZE / 2) + HEADER_HEIGHT, particleColor, 10);
+          // Dodaj do animacji zniknięcia, 'type' to to, co było na planszy
+          popping.push({ x, y, progress: 0, type: originalBoardType, wasPoison: wasActivePoison });
+          let pColor = wasActivePoison ? "rgba(44,62,80,0.7)" : (jewelImages[originalBoardType] ? "rgba(200,200,200,0.7)" : "rgba(128,128,128,0.7)");
+          createParticles(x * SIZE + SIZE / 2, (y * SIZE + SIZE / 2) + HEADER_HEIGHT, pColor, 10);
+          board[y][x] = null; // Oznacz pole jako puste PRZED uzupełnieniem
         }
       }
     }
 
     animatePop(() => {
-      let pointsFromThisRound = 0;
-      popping.forEach(p => {
-        pointsFromThisRound += p.wasPoison ? 20 : 10;
-      });
-      score += pointsFromThisRound;
-      if (scoreDiv) {
-        scoreDiv.textContent = "Wynik: " + score;
-      }
+      if (gameState === "gameover") return; // Jeśli gra zakończyła się w trakcie animacji
 
+      let pointsFromThisRound = 0;
+      popping.forEach(p => { pointsFromThisRound += p.wasPoison ? 20 : 10; });
+      score += pointsFromThisRound;
+      if (scoreDiv) scoreDiv.textContent = "Wynik: " + score;
+      if (score > recordScore) { recordScore = score; updateRecordScoreDisplay(); }
+
+      // Uzupełnianie planszy
       for (let x = 0; x < COLS; x++) {
         let emptySlots = 0;
         for (let y = ROWS - 1; y >= 0; y--) {
-          if (marks[y][x]) {
+          if (board[y][x] === null) { // Jeśli pole jest teraz puste
             emptySlots++;
-          } else if (emptySlots > 0) {
+          } else if (emptySlots > 0) { // Jeśli są puste miejsca poniżej, przesuń klejnot
             board[y + emptySlots][x] = board[y][x];
+            board[y][x] = null; // Poprzednie miejsce staje się puste
           }
         }
-        for (let y = 0; y < emptySlots; y++) {
+        for (let y = 0; y < emptySlots; y++) { // Uzupełnij puste miejsca od góry
           board[y][x] = randJewel();
         }
       }
-      popping = [];
-      animating = false;
-      setTimeout(() => {
-        if (!removeMatches()) {
-          animating = false;
-        }
-      }, 150);
+      popping = []; // Wyczyść listę znikających klejnotów
+
+      // Po uzupełnieniu, sprawdź rekursywnie czy są nowe dopasowania
+      if (!removeMatches() && gameState !== "gameover") {
+          // Jeśli NIE MA już więcej reakcji łańcuchowych I gra się nie skończyła
+          if (!checkForPossibleMoves()) {
+              if (gameState !== "gameover") { playSound("gameover"); gameOver("Brak ruchów!"); }
+          } else {
+              // Gra kontynuuje, zezwól na ruch gracza
+              animating = false;
+              lastMoveTime = Date.now(); // Reset timera podpowiedzi
+              scheduleHintTimer();
+          }
+      }
+      // Jeśli removeMatches() zwróciło true, to ono samo obsłuży dalsze sprawdzanie
     });
-    return true;
+    return true; // Dopasowania znalezione i przetworzone
   }
-  animating = false;
-  return false;
+  return false; // Brak dopasowań w tej iteracji
 }
 
 function animatePop(onComplete) {
   animating = true;
   let start = null;
   function popFrame(ts) {
-    if (!start) {
-      start = ts;
+    if (gameState === "gameover") { // Przerwij animację, jeśli gra się zakończyła
+        popping = []; // Wyczyść, aby nie rysować ich na ekranie gameover
+        if(typeof onComplete === 'function') onComplete();
+        return;
     }
-    let t = (ts - start) / 350;
+    if (!start) start = ts;
+    let t = (ts - start) / 350; // Czas trwania animacji
     popping.forEach(p => p.progress = Math.min(1, t));
     if (t < 1) {
       requestAnimationFrame(popFrame);
     } else {
-      onComplete();
+      if(typeof onComplete === 'function') onComplete();
     }
   }
   requestAnimationFrame(popFrame);
@@ -1110,16 +1335,17 @@ function animatePop(onComplete) {
 function animateSwap(x1, y1, x2, y2, onComplete, reverse = false) {
   animating = true;
   let start = null;
-  const jewelType1 = board[y1][x1];
+  const jewelType1 = board[y1][x1]; // Typy są już kolorowe, nie POISON_JEWEL_TYPE
   const jewelType2 = board[y2][x2];
-  const isPoison1 = isPoisonedJewel(x1,y1);
-  const isPoison2 = isPoisonedJewel(x2,y2);
 
   function swapFrame(ts) {
-    if (!start) {
-      start = ts;
+    if (gameState === "gameover") { // Przerwij animację
+        if(typeof onComplete === 'function') onComplete();
+        return;
     }
-    let t = Math.min(1, (ts - start) / 200); 
+    if (!start) start = ts;
+    let t = Math.min(1, (ts - start) / 200); // Czas trwania animacji
+    
     swapAnim = { x1, y1, x2, y2, progress: reverse ? 1 - t : t }; 
     
     const currentProgress = reverse ? 1 - t : t;
@@ -1129,23 +1355,15 @@ function animateSwap(x1, y1, x2, y2, onComplete, reverse = false) {
     const dy = y2 * SIZE + HEADER_HEIGHT;
     const jewelDrawSizeSwap = SIZE * JEWEL_VISUAL_SCALE;
 
-    // Rysuj pierwszy klejnot
+    // Rysowanie pierwszego klejnotu
     ctx.save();
     ctx.translate(sx + (dx - sx) * currentProgress + SIZE / 2, sy + (dy - sy) * currentProgress + SIZE / 2);
     let scale1 = 1;
-    if (selected && selected.x === x1 && selected.y === y1) {
-      scale1 = 1.1;
-    }
+    if (selected && selected.x === x1 && selected.y === y1) scale1 = 1.1;
     ctx.scale(scale1, scale1);
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = 'transparent';
-    if (selected && selected.x === x1 && selected.y === y1) {
-      ctx.shadowColor = "#FFFFFF";
-      ctx.shadowBlur = 3;
-    }
-    let img1 = isPoison1 ? poisonImage : (jewelType1 >=0 && jewelType1 < jewelImages.length ? jewelImages[jewelType1] : null);
+    ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+    if (selected && selected.x === x1 && selected.y === y1) { ctx.shadowColor = "#FFFFFF"; ctx.shadowBlur = 3; }
+    let img1 = (jewelType1 >=0 && jewelType1 < jewelImages.length ? jewelImages[jewelType1] : null);
     if (img1 && img1.complete) {
       ctx.drawImage(img1, -jewelDrawSizeSwap / 2, -jewelDrawSizeSwap / 2, jewelDrawSizeSwap, jewelDrawSizeSwap);
     } else {
@@ -1154,23 +1372,15 @@ function animateSwap(x1, y1, x2, y2, onComplete, reverse = false) {
     }
     ctx.restore();
 
-    // Rysuj drugi klejnot
+    // Rysowanie drugiego klejnotu
     ctx.save();
     ctx.translate(dx + (sx - dx) * currentProgress + SIZE / 2, dy + (sy - dy) * currentProgress + SIZE / 2);
     let scale2 = 1;
-    if (selected && selected.x === x2 && selected.y === y2) {
-      scale2 = 1.1;
-    }
+    if (selected && selected.x === x2 && selected.y === y2) scale2 = 1.1;
     ctx.scale(scale2, scale2);
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 0;
-    ctx.shadowBlur = 0;
-    ctx.shadowColor = 'transparent';
-    if (selected && selected.x === x2 && selected.y === y2) {
-      ctx.shadowColor = "#FFFFFF";
-      ctx.shadowBlur = 3;
-    }
-    let img2 = isPoison2 ? poisonImage : (jewelType2 >=0 && jewelType2 < jewelImages.length ? jewelImages[jewelType2] : null);
+    ctx.shadowOffsetX = 0; ctx.shadowOffsetY = 0; ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+    if (selected && selected.x === x2 && selected.y === y2) { ctx.shadowColor = "#FFFFFF"; ctx.shadowBlur = 3; }
+    let img2 = (jewelType2 >=0 && jewelType2 < jewelImages.length ? jewelImages[jewelType2] : null);
     if (img2 && img2.complete) {
       ctx.drawImage(img2, -jewelDrawSizeSwap / 2, -jewelDrawSizeSwap / 2, jewelDrawSizeSwap, jewelDrawSizeSwap);
     } else {
@@ -1183,27 +1393,32 @@ function animateSwap(x1, y1, x2, y2, onComplete, reverse = false) {
       requestAnimationFrame(swapFrame);
     } else {
       swapAnim = null;
-      onComplete();
+      if(typeof onComplete === 'function') onComplete();
     }
   }
   requestAnimationFrame(swapFrame);
 }
 
 function animate() {
-  draw(performance.now());
+  draw(performance.now()); // Zawsze wywołuj draw, logika wewnątrz draw decyduje co rysować
   requestAnimationFrame(animate);
 }
 
+// Główna inicjalizacja po załadowaniu strony
 loadJewelImages(() => {
   console.log("All jewel images loaded.");
-  // allImagesReady jest już ustawiane wewnątrz loadJewelImages
+  updateRecordScoreDisplay(); // Inicjalne wyświetlenie rekordu
+  settingsMenuButtons[2].text = `GAME MODE: ${gameMode.toUpperCase()}`; // Ustaw na podstawie domyślnego trybu
   animate(); 
+  
+  // Uruchomienie muzyki po pierwszej interakcji użytkownika
   let musicStarted = false;
   function tryStartMusic() {
-    if (!musicStarted && musicEnabled && (gameState === "game" || gameState === "menu")) {
+    if (!musicStarted && musicEnabled && (gameState === "game" || gameState === "menu" || gameState === "modeSelection")) {
       playGameMusic();
       musicStarted = true;
     }
   }
   document.addEventListener("mousedown", tryStartMusic, { once: true });
+  document.addEventListener("keydown", tryStartMusic, { once: true });
 });
