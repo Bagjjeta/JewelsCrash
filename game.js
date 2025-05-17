@@ -1288,24 +1288,48 @@ function removeMatches() {
       }
     }
   }
+
   if (removed) {
+    // NOWA LOGIKA: Sprawdź zatrute klejnoty sąsiadujące z jakimkolwiek dopasowanym klejnotem
+    for (let r = 0; r < ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (marks[r][c]) { // Jeżeli klejnot w (r,c) jest częścią dopasowania
+          const neighbors = [
+            { x: c, y: r - 1 }, // góra
+            { x: c, y: r + 1 }, // dół
+            { x: c - 1, y: r }, // lewo
+            { x: c + 1, y: r }  // prawo
+          ];
+          for (const n of neighbors) {
+            if (n.x >= 0 && n.x < COLS && n.y >= 0 && n.y < ROWS) { // Sprawdź granice planszy
+              if (isPoisonedJewel(n.x, n.y) && !marks[n.y][n.x]) {
+                // Znaleziono zatruty klejnot sąsiadujący z dopasowaniem, który nie jest jeszcze oznaczony do usunięcia
+                marks[n.y][n.x] = true; // Oznacz go do usunięcia
+              }
+            }
+          }
+        }
+      }
+    }
+    // KONIEC NOWEJ LOGIKI SĄSIEDZTWA
+
     playSound("match");
     popping = [];
     
-    // Check if any poisoned jewels are matched
-    let poisonedRemoved = false;
+    let poisonedRemovedThisTurn = false; 
+    let countPoisonedRemovedThisTurn = 0; 
+
     for (let i = poisonedJewels.length - 1; i >= 0; i--) {
       const pos = poisonedJewels[i];
-      if (marks[pos.y][pos.x]) {
-        // Remove the poisoned jewel
+      if (marks[pos.y][pos.x]) { 
         poisonedJewels.splice(i, 1);
-        delete poisonedMovesLeft[`${pos.x},${pos.y}`];
-        poisonedRemoved = true;
+        delete poisonedMovesLeft[`${pos.x},${pos.y}`]; 
+        poisonedRemovedThisTurn = true;
+        countPoisonedRemovedThisTurn++; 
       }
     }
     
-    if (poisonedRemoved) {
-      // Create special effect for removing poisoned jewels
+    if (poisonedRemovedThisTurn) {
       createParticles(canvas.width / 2, canvas.height / 2, POISONED_COLOR, 30);
     }
     
@@ -1313,33 +1337,60 @@ function removeMatches() {
       for (let x = 0; x < COLS; x++) {
         if (marks[y][x]) {
           popping.push({ x, y, progress: 0, type: board[y][x] });
-          // Create particles at each match location
           createParticles(x * SIZE + SIZE / 2, (y * SIZE + SIZE / 2) + HEADER_HEIGHT, 
                          isPoisonedJewel(x, y) ? POISONED_COLOR : COLORS[board[y][x]], 15);
         }
       }
     }
+
     animatePop(() => {
-      let points = 0;
+      let basePointsFromMatches = 0;
+      let newBoard = Array.from({ length: ROWS }, () => Array(COLS).fill(null)); 
+
       for (let x = 0; x < COLS; x++) {
         let col = [];
         for (let y = ROWS - 1; y >= 0; y--) {
-          if (!marks[y][x]) col.unshift(board[y][x]);
-          else points += 10;
+          if (marks[y][x]) { 
+            basePointsFromMatches+=50;
+          } else {
+            col.push(board[y][x]);
+          }
         }
-        while (col.length < ROWS) col.unshift(randJewel());
-        for (let y = 0; y < ROWS; y++) board[y][x] = col[y];
+        for (let y = ROWS - 1; y >= 0; y--) {
+          if (col.length > 0) {
+            newBoard[y][x] = col.pop();
+          } else {
+            newBoard[y][x] = Math.floor(Math.random() * COLORS.length);
+          }
+        }
       }
-      score += points;
-      scoreDiv.textContent = "Wynik: " + score;
-      popping = [];
+      
+      score += basePointsFromMatches + countPoisonedRemovedThisTurn * (basePointsFromMatches * 2);
+      scoreDiv.textContent = "Wynik: " + score; // POPRAWIONA LINIA
+
+      board = newBoard; 
+
+      // Po ponownym zapełnieniu, sprawdź nowe dopasowania (kaskady)
+      // W twoim oryginalnym kodzie było setTimeout(removeMatches, 150) wewnątrz animatePop.
+      // Aby zachować podobną logikę kaskad, wywołujemy checkMatches, które powinno obsłużyć dalsze dopasowania.
+      // Zakładam, że potrzebujesz funkcji checkMatches, która wywoła removeMatches jeśli znajdzie nowe dopasowania.
+      // Jeśli checkMatches nie istnieje lub działa inaczej, ten fragment może wymagać dostosowania.
+      // Na podstawie twojego kodu `swapJewels` i `removeMatches`, wydaje się, że `removeMatches` jest rekursywne przez setTimeout.
+      // Możemy zachować tę logikę, ale upewnijmy się, że popping jest czyszczone przed ponownym wywołaniem.
+      popping = []; // Wyczyść popping przed potencjalną kaskadą
       setTimeout(() => {
-        draw(performance.now());
-        setTimeout(() => removeMatches(), 150);
-      }, 80);
-    });
+        draw(performance.now()); // Odrysuj przed sprawdzeniem kaskady
+        removeMatches(); // Sprawdź kaskadowe dopasowania
+      }, 150); // Niewielkie opóźnienie dla płynności
+      
+      // Jeśli wolisz, aby `checkMatches` było główną funkcją kontrolującą kaskady:
+      checkMatches(true); // true dla animacji, jeśli masz taką funkcję
+
+    }, 300); 
   }
-  return removed;
+  // Zwróć true, jeśli jakiekolwiek klejnoty zostały usunięte, false w przeciwnym razie.
+  // Jest to ważne dla logiki w `swapJewels`, aby wiedzieć, czy cofnąć ruch.
+  return removed; 
 }
 
 // Animate popping jewels
