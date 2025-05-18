@@ -152,7 +152,7 @@ const modeSelectionButtons = [
     action: () => {
       gameMode = "classic";
       gameState = "menu";
-      settingsMenuButtons[2].text = `GAME MODE: ${gameMode.toUpperCase()}`; // Aktualizuj tekst w ustawieniach
+      settingsMenuButtons[2].text = `TRYB GRY: ${gameMode.toUpperCase()}`; // Aktualizuj tekst w ustawieniach
       playGameMusic();
     }
   },
@@ -161,7 +161,7 @@ const modeSelectionButtons = [
     action: () => {
       gameMode = "poisoned";
       gameState = "menu";
-      settingsMenuButtons[2].text = `GAME MODE: ${gameMode.toUpperCase()}`; // Aktualizuj tekst w ustawieniach
+      settingsMenuButtons[2].text = `TRYB GRY: ${gameMode.toUpperCase()}`; // Aktualizuj tekst w ustawieniach
       playGameMusic();
     }
   }
@@ -169,43 +169,43 @@ const modeSelectionButtons = [
 
 const mainMenuButtons = [
   {
-    text: "PLAY", x: canvas.width / 2, y: 200, width: 200, height: 50,
+    text: "GRAJ", x: canvas.width / 2, y: 200, width: 200, height: 50,
     action: () => startGame()
   },
   {
-    text: "SETTINGS", x: canvas.width / 2, y: 270, width: 200, height: 50,
+    text: "USTAWIENIA", x: canvas.width / 2, y: 270, width: 200, height: 50,
     action: () => { gameState = "settings"; }
   },
   {
-    text: "HELP", x: canvas.width / 2, y: 340, width: 200, height: 50,
+    text: "POMOC", x: canvas.width / 2, y: 340, width: 200, height: 50,
     action: () => { gameState = "help"; }
   }
 ];
 
 const settingsMenuButtons = [
   {
-    text: "SOUND: ON", x: canvas.width / 2, y: 170, width: 240, height: 50,
+    text: "DŹWIĘK: WŁĄCZ", x: canvas.width / 2, y: 170, width: 240, height: 50,
     action: () => {
       soundEnabled = !soundEnabled;
-      settingsMenuButtons[0].text = soundEnabled ? "SOUND: ON" : "SOUND: OFF";
+      settingsMenuButtons[0].text = soundEnabled ? "DŹWIĘK: WŁĄCZ" : "DŹWIĘK: WYŁĄCZ";
     }
   },
   {
-    text: "MUSIC: ON", x: canvas.width / 2, y: 240, width: 240, height: 50,
+    text: "MUZYKA: WŁĄCZ", x: canvas.width / 2, y: 240, width: 240, height: 50,
     action: () => {
       toggleMusic();
-      settingsMenuButtons[1].text = musicEnabled ? "MUSIC: ON" : "MUSIC: OFF";
+      settingsMenuButtons[1].text = musicEnabled ? "MUZYKA: WŁĄCZ" : "MUZYKA: WYŁĄCZ";
     }
   },
   {
-    text: "GAME MODE: CLASSIC", x: canvas.width / 2, y: 310, width: 280, height: 50, // Tekst aktualizowany dynamicznie
+    text: "TRYB GRY: KLASYCZNY", x: canvas.width / 2, y: 310, width: 280, height: 50, // Tekst aktualizowany dynamicznie
     action: () => {
       gameMode = gameMode === "classic" ? "poisoned" : "classic";
-      settingsMenuButtons[2].text = `GAME MODE: ${gameMode.toUpperCase()}`;
+      settingsMenuButtons[2].text = `TRYB GRY: ${gameMode.toUpperCase()}`;
     }
   },
   {
-    text: "BACK", x: canvas.width / 2, y: 380, width: 200, height: 50,
+    text: "WRÓĆ", x: canvas.width / 2, y: 380, width: 200, height: 50,
     action: () => { gameState = "menu"; }
   }
 ];
@@ -445,9 +445,9 @@ function draw(now) {
       ctx.fillStyle = "#fff";
       ctx.font = "bold 36px Arial";
       ctx.textAlign = "center";
-      ctx.fillText("PAUSED", canvas.width / 2, canvas.height / 2 - 20);
+      ctx.fillText("PAUZA", canvas.width / 2, canvas.height / 2 - 20);
       ctx.font = "20px Arial";
-      ctx.fillText("Click to continue", canvas.width / 2, canvas.height / 2 + 20);
+      ctx.fillText("Kliknij, aby kontynuować", canvas.width / 2, canvas.height / 2 + 20);
     }
   }
   drawParticles();
@@ -510,7 +510,7 @@ function drawMenuScreen(now) {
   ctx.fillStyle = "#fff";
   ctx.font = "bold 48px Arial";
   ctx.textAlign = "center";
-  ctx.fillText("JEWELS CRASH", canvas.width / 2, 120);
+  ctx.fillText("JEWELS SWAP", canvas.width / 2, 120);
 
   const gemSize = 35;
   const gemX = canvas.width / 2 + 140;
@@ -545,14 +545,14 @@ function drawMenuScreen(now) {
 
   ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
   ctx.font = "15px Arial";
-  ctx.fillText("© 2025 Bagjjeta", canvas.width / 2, canvas.height - 20);
+  ctx.fillText("© 2025 Jewels Swap", canvas.width / 2, canvas.height - 20);
 }
 
 function drawSettingsScreen(now) {
   ctx.fillStyle = "#fff";
   ctx.font = "bold 36px Arial";
   ctx.textAlign = "center";
-  ctx.fillText("SETTINGS", canvas.width / 2, 120);
+  ctx.fillText("USTAWIENIA", canvas.width / 2, 120);
 
   for (const button of settingsMenuButtons) {
     const isHovered = hover &&
@@ -566,18 +566,20 @@ function drawHelpScreen() {
   ctx.fillStyle = "#fff";
   ctx.font = "bold 36px Arial";
   ctx.textAlign = "center";
-  ctx.fillText("HOW TO PLAY", canvas.width / 2, 80);
+  ctx.fillText("JAK GRAĆ?", canvas.width / 2, 80);
 
   ctx.font = "16px Arial";
   ctx.textAlign = "left";
   const lineHeight = 25;
   let yPos = 130;
   const helpText = [
-    "1. Swap adjacent jewels to create matches of 3 or more",
-    "2. Matches must be in a horizontal or vertical line",
-    "3. Create matches to score points",
-    "4. If you get stuck, wait for a hint to appear",
-    "5. Press ESC to pause the game"
+    "TRYB KLASYCZNY",
+    "1. Zamieniaj sąsiadujące klejnoty, aby tworzyć",
+    "   grupy co najmniej trzech tych samych kolorów",
+    "2. Dopasowania muszą tworzyć poziomą lub pionową linię",
+    "3. Twórz dopasowania, aby zdobywać punkty",
+    "4. Jeśli nie widzisz dopasowania, poczekaj na podpowiedź",
+    "5. Naciśnij ESC, aby zatrzymać grę"
   ];
   for (const line of helpText) {
     ctx.fillText(line, 80, yPos);
@@ -585,26 +587,22 @@ function drawHelpScreen() {
   }
   yPos += 20; // Dodatkowy odstęp
 
-  if (gameMode === "classic") {
-    ctx.fillText("CLASSIC MODE:", 80, yPos);
+  if (gameMode === "poisoned") {
+    ctx.fillText("TRYB ZATRUTE KLEJNOTY:", 80, yPos);
     yPos += lineHeight;
-    ctx.fillText("- Standard match-3 gameplay", 80, yPos);
-  } else if (gameMode === "poisoned") {
-    ctx.fillText("POISONED JEWELS MODE:", 80, yPos);
+    ctx.fillText(`1. Co ${poisonedMovesBeforeSpawn} ruchy, pojawiają się zatrute klejnoty`, 80, yPos);
     yPos += lineHeight;
-    ctx.fillText(`- Every ${poisonedMovesBeforeSpawn} moves, a poisoned jewel appears`, 80, yPos);
+    ctx.fillText(`2. Usuń je w ${poisonedMovesBeforeSpread} ruchów, albo się rozprzestrzenią`, 80, yPos);
     yPos += lineHeight;
-    ctx.fillText(`- Remove it within ${poisonedMovesBeforeSpread} moves or it will spread`, 80, yPos);
+    ctx.fillText("3. Jeżeli zatrute klejnoty wypełnią planszę - przegrywasz", 80, yPos);
     yPos += lineHeight;
-    ctx.fillText("- If poisoned jewels fill the board, you lose", 80, yPos);
+    ctx.fillText("4. Zatrute klejnoty dają 2 razy więcej punktów", 80, yPos);
     yPos += lineHeight;
-    ctx.fillText("- Poisoned jewels give 2x points (20 points)", 80, yPos);
-    yPos += lineHeight;
-    ctx.fillText("- Poisoned jewels are removed if matched OR if an adjacent match occurs", 80, yPos);
+    ctx.fillText("5. Zatrute klejnoty są usuwane, jeżeli dopasowanie wystąpi obok nich", 80, yPos);
   }
 
   const backButtonConfig = {
-    text: "BACK", x: canvas.width / 2, y: canvas.height - 60, width: 200, height: 50,
+    text: "WRÓĆ", x: canvas.width / 2, y: canvas.height - 60, width: 200, height: 50,
     action: () => { gameState = "menu"; }
   };
   const isBackHovered = hover &&
@@ -689,11 +687,11 @@ function drawGameScreen(now) {
     let nextPoisonIn = poisonedMovesBeforeSpawn - (movesCounter % poisonedMovesBeforeSpawn);
     ctx.font = "14px Arial";
     ctx.textAlign = "right";
-    ctx.fillText(`Poison in: ${nextPoisonIn}`, canvas.width - 20, HEADER_HEIGHT / 2 + 5);
+    ctx.fillText(`Zatrucie za: ${nextPoisonIn}`, canvas.width - 20, HEADER_HEIGHT / 2 + 5);
   } else {
     ctx.font = "16px Arial";
     ctx.textAlign = "right";
-    ctx.fillText("ESC - Pause", canvas.width - 20, HEADER_HEIGHT / 2 + 5);
+    ctx.fillText("ESC - Pauza", canvas.width - 20, HEADER_HEIGHT / 2 + 5);
   }
 
   popping.forEach(p => {
@@ -911,7 +909,7 @@ function gameOver(reason = "Koniec Gry") {
     ctx.fillStyle = "#fff";
     ctx.font = "bold 48px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 60);
+    ctx.fillText("KONIEC GRY", canvas.width / 2, canvas.height / 2 - 60);
 
     ctx.font = "bold 28px Arial";
     ctx.fillText(reason, canvas.width / 2, canvas.height / 2 - 10);
@@ -920,7 +918,7 @@ function gameOver(reason = "Koniec Gry") {
     ctx.fillText(`Wynik: ${score}`, canvas.width / 2, canvas.height / 2 + 40);
     
     const retryButton = {
-      text: "RETRY", x: canvas.width / 2, y: canvas.height / 2 + 100, width: 200, height: 50,
+      text: "SPRÓBUJ PONOWNIE", x: canvas.width / 2, y: canvas.height / 2 + 100, width: 200, height: 50,
       action: () => {
         startGame(); // Bezpośrednio uruchom nową grę
       }
@@ -1408,7 +1406,7 @@ function animate() {
 loadJewelImages(() => {
   console.log("All jewel images loaded.");
   updateRecordScoreDisplay(); // Inicjalne wyświetlenie rekordu
-  settingsMenuButtons[2].text = `GAME MODE: ${gameMode.toUpperCase()}`; // Ustaw na podstawie domyślnego trybu
+  settingsMenuButtons[2].text = `TRYB GRY: ${gameMode.toUpperCase()}`; // Ustaw na podstawie domyślnego trybu
   animate(); 
   
   // Uruchomienie muzyki po pierwszej interakcji użytkownika
